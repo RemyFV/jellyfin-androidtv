@@ -76,6 +76,17 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
+			var screensaverAudioVisualizer by rememberPreference(userPreferences, UserPreferences.screensaverAudioVisualizer)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_audio_visualizer)) },
+				trailingContent = { Checkbox(checked = screensaverAudioVisualizer) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_audio_visualizer_description)) },
+				onClick = { screensaverAudioVisualizer = !screensaverAudioVisualizer }
+			)
+		}
+
+		item {
 			var screensaverAgeRatingRequired by rememberPreference(userPreferences, UserPreferences.screensaverAgeRatingRequired)
 
 			ListButton(

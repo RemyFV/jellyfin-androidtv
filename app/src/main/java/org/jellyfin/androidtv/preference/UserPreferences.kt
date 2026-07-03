@@ -231,6 +231,11 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverShowLyrics = booleanPreference("screensaver_show_lyrics", true)
 
 		/**
+		 * Show a real-time audio spectrum visualizer on the edges of the now-playing screensaver.
+		 */
+		var screensaverAudioVisualizer = booleanPreference("screensaver_audio_visualizer", false)
+
+		/**
 		 * Delay when starting video playback after loading the video player.
 		 */
 		var videoStartDelay = longPreference("video_start_delay", 0)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import org.jellyfin.playback.core.PlaybackManager
 import org.jellyfin.playback.core.model.PlayState
 import org.jellyfin.playback.jellyfin.lyrics.lyrics
 import org.jellyfin.playback.jellyfin.lyrics.lyricsFlow
+import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.model.api.ImageType
 import org.koin.compose.koinInject
@@ -69,6 +71,7 @@ fun DreamContentNowPlaying(
 	val userPreferences = koinInject<UserPreferences>()
 	val hideNowPlayingCover = userPreferences[UserPreferences.screensaverHideNowPlayingCover]
 	val showLyrics = userPreferences[UserPreferences.screensaverShowLyrics]
+	val showVisualizer = userPreferences[UserPreferences.screensaverAudioVisualizer]
 	val lyrics = content.entry.run { lyricsFlow.collectAsState(lyrics) }.value
 
 	val primaryImage = content.item.itemImages[ImageType.PRIMARY]
@@ -88,6 +91,24 @@ fun DreamContentNowPlaying(
 			blurHash = backgroundImage.blurHash,
 			scaleType = ImageView.ScaleType.CENTER_CROP,
 			modifier = Modifier.fillMaxSize(),
+		)
+	}
+
+	// Audio visualizer on the edges (over the blurred side fill)
+	if (showVisualizer) {
+		DisposableEffect(Unit) {
+			AudioSpectrum.enabled = true
+			onDispose {
+				AudioSpectrum.enabled = false
+				AudioSpectrum.reset()
+			}
+		}
+
+		AudioVisualizerEdges(
+			modifier = Modifier
+				.fillMaxSize()
+				.overscan(),
+			color = Color.White,
 		)
 	}
 

@@ -499,6 +499,8 @@
     <string name="pref_screensaver_hide_nowplaying_cover_description">Hide the small cover in the bottom-left; the backdrop already shows the artwork</string>
     <string name="pref_screensaver_show_lyrics">Show lyrics in music screensaver</string>
     <string name="pref_screensaver_show_lyrics_description">Show synced lyrics over the backdrop during playback</string>
+    <string name="pref_screensaver_audio_visualizer">Audio visualizer</string>
+    <string name="pref_screensaver_audio_visualizer_description">Show a real-time spectrum on the edges of the music screensaver</string>
     <string name="enable_reactive_homepage">Enable reactive homepage</string>
     <string name="not_set">Not set</string>
     <string name="lbl_album_artists">Album artists</string>
