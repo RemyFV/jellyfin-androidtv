@@ -38,9 +38,9 @@ import org.jellyfin.androidtv.ui.composable.AsyncImage
 import org.jellyfin.androidtv.ui.composable.LyricsDtoBox
 import org.jellyfin.androidtv.ui.composable.modifier.fadingEdges
 import org.jellyfin.androidtv.ui.composable.modifier.overscan
+import org.jellyfin.androidtv.ui.composable.rememberCurrentTime
 import org.jellyfin.androidtv.ui.composable.rememberPlayerPositionInfo
 import org.jellyfin.androidtv.ui.player.base.PlayerSeekbar
-import org.jellyfin.androidtv.ui.shared.toolbar.ToolbarClock
 import org.jellyfin.androidtv.util.apiclient.albumPrimaryImage
 import org.jellyfin.androidtv.util.apiclient.getUrl
 import org.jellyfin.androidtv.util.apiclient.itemBackdropImages
@@ -81,6 +81,9 @@ fun DreamContentNowPlaying(
 	val visualizerCenterOut = userPreferences[UserPreferences.screensaverVisualizerCenterOut]
 	val visualizerCoverColor = userPreferences[UserPreferences.screensaverVisualizerCoverColor]
 	val centeredLayout = userPreferences[UserPreferences.screensaverCenteredLayout]
+	val hideSongTitle = userPreferences[UserPreferences.screensaverHideSongTitle]
+	val hideArtist = userPreferences[UserPreferences.screensaverHideArtist]
+	val hideClock = userPreferences[UserPreferences.screensaverHideClock]
 	val clockEnabled = userPreferences[UserPreferences.clockBehavior].let {
 		it == ClockBehavior.ALWAYS || it == ClockBehavior.IN_MENUS
 	}
@@ -97,7 +100,7 @@ fun DreamContentNowPlaying(
 		?: content.item.parentBackdropImages.firstOrNull()
 		?: primaryImage
 
-	val accentColor = rememberCoverAccentColor(primaryImage?.getUrl(api), visualizerCoverColor)
+	val visualizerColors = rememberCoverAccentColors(primaryImage?.getUrl(api), visualizerCoverColor)
 
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
@@ -129,12 +132,10 @@ fun DreamContentNowPlaying(
 		}
 
 		AudioVisualizer(
-			modifier = Modifier
-				.fillMaxSize()
-				.overscan(),
+			modifier = Modifier.fillMaxSize(),
 			radial = visualizerRadial,
 			centerOut = visualizerCenterOut,
-			color = accentColor,
+			colors = visualizerColors,
 			topInset = !centeredLayout,
 		)
 	}
@@ -161,13 +162,18 @@ fun DreamContentNowPlaying(
 
 	// Centered clock at the top for the focused layout (the default top-right clock is suppressed
 	// by DreamView in this case).
-	if (centeredLayout && clockEnabled) {
+	if (centeredLayout && clockEnabled && !hideClock) {
+		val currentTime by rememberCurrentTime()
 		Box(
 			modifier = Modifier
 				.align(Alignment.TopCenter)
 				.overscan(),
 		) {
-			ToolbarClock()
+			OutlinedText(
+				text = currentTime,
+				color = Color.White,
+				fontSize = 20.sp,
+			)
 		}
 	}
 
@@ -182,20 +188,27 @@ fun DreamContentNowPlaying(
 			modifier = Modifier
 				.align(Alignment.BottomCenter)
 				.fillMaxWidth(coverFraction)
-				.overscan()
-				.padding(bottom = 24.dp),
+				.overscan(),
 		) {
-			Text(
-				text = content.item.name.orEmpty(),
-				textAlign = TextAlign.Center,
-				style = TextStyle(color = Color.White, fontSize = 26.sp, shadow = overlayShadow),
-			)
+			if (!hideSongTitle) {
+				OutlinedText(
+					text = content.item.name.orEmpty(),
+					color = Color.White,
+					fontSize = 26.sp,
+					textAlign = TextAlign.Center,
+					fillWidth = true,
+				)
+			}
 
-			Text(
-				text = artistText,
-				textAlign = TextAlign.Center,
-				style = TextStyle(color = Color(0.8f, 0.8f, 0.8f), fontSize = 18.sp, shadow = overlayShadow),
-			)
+			if (!hideArtist) {
+				OutlinedText(
+					text = artistText,
+					color = Color(0.8f, 0.8f, 0.8f),
+					fontSize = 18.sp,
+					textAlign = TextAlign.Center,
+					fillWidth = true,
+				)
+			}
 
 			Spacer(modifier = Modifier.height(10.dp))
 
@@ -236,23 +249,27 @@ fun DreamContentNowPlaying(
 				modifier = Modifier
 					.padding(bottom = 10.dp)
 			) {
-				Text(
-					text = content.item.name.orEmpty(),
-					style = TextStyle(
-						color = Color.White,
-						fontSize = 26.sp,
-						shadow = overlayShadow,
-					),
-				)
+				if (!hideSongTitle) {
+					Text(
+						text = content.item.name.orEmpty(),
+						style = TextStyle(
+							color = Color.White,
+							fontSize = 26.sp,
+							shadow = overlayShadow,
+						),
+					)
+				}
 
-				Text(
-					text = artistText,
-					style = TextStyle(
-						color = Color(0.8f, 0.8f, 0.8f),
-						fontSize = 18.sp,
-						shadow = overlayShadow,
-					),
-				)
+				if (!hideArtist) {
+					Text(
+						text = artistText,
+						style = TextStyle(
+							color = Color(0.8f, 0.8f, 0.8f),
+							fontSize = 18.sp,
+							shadow = overlayShadow,
+						),
+					)
+				}
 
 				Spacer(modifier = Modifier.height(10.dp))
 

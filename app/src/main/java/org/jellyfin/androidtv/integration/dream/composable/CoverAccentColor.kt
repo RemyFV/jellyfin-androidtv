@@ -17,68 +17,102 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import kotlin.math.abs
+import kotlin.math.min
+
+private val WhiteOnly = listOf(Color.White)
+private const val BUCKETS = 12
+private const val PALETTE_SIZE = 3
 
 /**
- * Loads the cover at [url] and returns a vibrant accent colour sampled from it, or [Color.White]
- * when disabled, unavailable, or the cover has no colourful content. Recomputed when the url changes.
+ * Loads the cover at [url] and returns up to [PALETTE_SIZE] vibrant accent colours sampled from it
+ * (for a gradient), or a single white entry when disabled, unavailable, or the cover has no colourful
+ * content. Recomputed when the url changes.
  */
 @Composable
-fun rememberCoverAccentColor(url: String?, enabled: Boolean): Color {
-	if (!enabled || url == null) return Color.White
+fun rememberCoverAccentColors(url: String?, enabled: Boolean): List<Color> {
+	if (!enabled || url == null) return WhiteOnly
 
 	val context = LocalContext.current
 	val imageLoader = koinInject<ImageLoader>()
-	var color by remember(url) { mutableStateOf(Color.White) }
+	var colors by remember(url) { mutableStateOf(WhiteOnly) }
 
 	LaunchedEffect(url) {
-		val accent = withContext(Dispatchers.IO) {
+		val palette = withContext(Dispatchers.IO) {
 			runCatching {
 				val request = ImageRequest.Builder(context)
 					.data(url)
 					.allowHardware(false)
 					.build()
-				imageLoader.execute(request).image?.toBitmap()?.let(::extractAccent)
+				imageLoader.execute(request).image?.toBitmap()?.let(::extractPalette)
 			}.getOrNull()
 		}
-		if (accent != null) color = accent
+		if (palette != null) colors = palette
 	}
 
-	return color
+	return colors
 }
 
-private fun extractAccent(source: Bitmap): Color {
+private fun extractPalette(source: Bitmap): List<Color> {
 	val size = 48
 	val scaled = Bitmap.createScaledBitmap(source, size, size, true)
 	val pixels = IntArray(size * size)
 	scaled.getPixels(pixels, 0, size, 0, 0, size, size)
 
+	val weight = DoubleArray(BUCKETS)
+	val rSum = DoubleArray(BUCKETS)
+	val gSum = DoubleArray(BUCKETS)
+	val bSum = DoubleArray(BUCKETS)
 	val hsv = FloatArray(3)
-	var rw = 0.0
-	var gw = 0.0
-	var bw = 0.0
-	var weightSum = 0.0
 
 	for (p in pixels) {
 		val r = (p shr 16) and 0xFF
 		val g = (p shr 8) and 0xFF
 		val b = p and 0xFF
 		android.graphics.Color.RGBToHSV(r, g, b, hsv)
-		// Favour saturated, mid-bright pixels so the accent is vivid, not muddy or washed out.
-		val weight = (hsv[1] * hsv[1]) * (1f - abs(hsv[2] - 0.6f))
-		if (weight <= 0f) continue
-		rw += r * weight
-		gw += g * weight
-		bw += b * weight
-		weightSum += weight
+		// Favour saturated, mid-bright pixels so accents are vivid, not muddy.
+		val w = (hsv[1] * hsv[1]) * (1f - abs(hsv[2] - 0.6f))
+		if (w <= 0f) continue
+		val bucket = ((hsv[0] / 360f) * BUCKETS).toInt().coerceIn(0, BUCKETS - 1)
+		weight[bucket] += w
+		rSum[bucket] += r * w
+		gSum[bucket] += g * w
+		bSum[bucket] += b * w
 	}
 
-	if (weightSum < 1e-3) return Color.White
+	// Greedily pick the strongest hue buckets, keeping them apart so the gradient has variety.
+	val picked = mutableListOf<Int>()
+	for (bucket in weight.indices.sortedByDescending { weight[it] }) {
+		if (weight[bucket] <= 0.0) break
+		if (picked.all { min(abs(it - bucket), BUCKETS - abs(it - bucket)) >= 2 }) picked.add(bucket)
+		if (picked.size == PALETTE_SIZE) break
+	}
 
-	val r = (rw / weightSum).toInt()
-	val g = (gw / weightSum).toInt()
-	val b = (bw / weightSum).toInt()
-	android.graphics.Color.RGBToHSV(r, g, b, hsv)
+	if (picked.isEmpty()) return WhiteOnly
+
+	val result = picked
+		.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }
+		.toMutableList()
+	// Pad with hue-shifted variants if the cover has fewer distinct vivid hues.
+	while (result.size < PALETTE_SIZE) result.add(hueShift(result.last(), 40f))
+	return result
+}
+
+private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double): Color {
+	val hsv = FloatArray(3)
+	android.graphics.Color.RGBToHSV((rSum / weight).toInt(), (gSum / weight).toInt(), (bSum / weight).toInt(), hsv)
 	hsv[1] = (hsv[1] * 1.35f).coerceAtMost(1f)
 	hsv[2] = hsv[2].coerceIn(0.65f, 0.95f)
+	return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+private fun hueShift(color: Color, degrees: Float): Color {
+	val hsv = FloatArray(3)
+	android.graphics.Color.RGBToHSV(
+		(color.red * 255).toInt(),
+		(color.green * 255).toInt(),
+		(color.blue * 255).toInt(),
+		hsv,
+	)
+	hsv[0] = (hsv[0] + degrees) % 360f
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }
