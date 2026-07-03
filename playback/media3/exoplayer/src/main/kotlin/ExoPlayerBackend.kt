@@ -97,7 +97,7 @@ class ExoPlayerBackend(
 			}
 		} else DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-		val renderersFactory = DefaultRenderersFactory(context).apply {
+		val renderersFactory = AudioTapRenderersFactory(context).apply {
 			setEnableDecoderFallback(true)
 			setExtensionRendererMode(
 				when (exoPlayerOptions.preferFfmpeg) {
@@ -126,7 +126,9 @@ class ExoPlayerBackend(
 				setParameters(buildUponParameters().apply {
 					setAudioOffloadPreferences(
 						TrackSelectionParameters.AudioOffloadPreferences.DEFAULT.buildUpon().apply {
-							setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+							// Disabled so decoded PCM flows through our audio processor chain (the
+							// AudioSpectrum tap); offload would bypass it. Negligible cost on a TV.
+							setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
 						}.build()
 					)
 					setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
