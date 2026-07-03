@@ -220,6 +220,12 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverAgeRatingRequired = booleanPreference("screensaver_agerating_required", true)
 
 		/**
+		 * Hide the small album cover in the bottom-left of the now-playing screensaver
+		 * (redundant with the backdrop, which already shows the artwork).
+		 */
+		var screensaverHideNowPlayingCover = booleanPreference("screensaver_hide_nowplaying_cover", false)
+
+		/**
 		 * Delay when starting video playback after loading the video player.
 		 */
 		var videoStartDelay = longPreference("video_start_delay", 0)

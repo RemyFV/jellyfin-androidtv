@@ -54,6 +54,17 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
+			var screensaverHideNowPlayingCover by rememberPreference(userPreferences, UserPreferences.screensaverHideNowPlayingCover)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_hide_nowplaying_cover)) },
+				trailingContent = { Checkbox(checked = screensaverHideNowPlayingCover) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_hide_nowplaying_cover_description)) },
+				onClick = { screensaverHideNowPlayingCover = !screensaverHideNowPlayingCover }
+			)
+		}
+
+		item {
 			var screensaverAgeRatingRequired by rememberPreference(userPreferences, UserPreferences.screensaverAgeRatingRequired)
 
 			ListButton(

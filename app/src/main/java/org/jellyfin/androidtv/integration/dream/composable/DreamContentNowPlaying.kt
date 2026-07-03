@@ -19,11 +19,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jellyfin.androidtv.integration.dream.model.DreamContent
+import org.jellyfin.androidtv.preference.UserPreferences
 import org.jellyfin.androidtv.ui.base.SeekbarDefaults
 import org.jellyfin.androidtv.ui.base.Text
 import org.jellyfin.androidtv.ui.composable.AsyncImage
@@ -46,6 +50,14 @@ import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.model.api.ImageType
 import org.koin.compose.koinInject
 
+// Soft black shadow used as an outline so text/controls stay readable on top of the backdrop
+// (there is no dark overlay behind them).
+private val overlayShadow = Shadow(
+	color = Color.Black.copy(alpha = 0.75f),
+	offset = Offset(0f, 2f),
+	blurRadius = 8f,
+)
+
 @Composable
 fun DreamContentNowPlaying(
 	content: DreamContent.NowPlaying,
@@ -54,6 +66,8 @@ fun DreamContentNowPlaying(
 ) {
 	val api = koinInject<ApiClient>()
 	val playbackManager = koinInject<PlaybackManager>()
+	val userPreferences = koinInject<UserPreferences>()
+	val hideNowPlayingCover = userPreferences[UserPreferences.screensaverHideNowPlayingCover]
 	val lyrics = content.entry.run { lyricsFlow.collectAsState(lyrics) }.value
 
 	val primaryImage = content.item.itemImages[ImageType.PRIMARY]
@@ -74,8 +88,6 @@ fun DreamContentNowPlaying(
 			scaleType = ImageView.ScaleType.CENTER_CROP,
 			modifier = Modifier.fillMaxSize(),
 		)
-
-		DreamContentVignette()
 	}
 
 	// Lyrics overlay (on top of background)
@@ -105,7 +117,7 @@ fun DreamContentNowPlaying(
 			.align(Alignment.BottomStart)
 			.overscan(),
 	) {
-		if (primaryImage != null) {
+		if (primaryImage != null && !hideNowPlayingCover) {
 			AsyncImage(
 				url = primaryImage.getUrl(api),
 				blurHash = primaryImage.blurHash,
@@ -125,6 +137,7 @@ fun DreamContentNowPlaying(
 				style = TextStyle(
 					color = Color.White,
 					fontSize = 26.sp,
+					shadow = overlayShadow,
 				),
 			)
 
@@ -142,6 +155,7 @@ fun DreamContentNowPlaying(
 				style = TextStyle(
 					color = Color(0.8f, 0.8f, 0.8f),
 					fontSize = 18.sp,
+					shadow = overlayShadow,
 				),
 			)
 
@@ -157,6 +171,7 @@ fun DreamContentNowPlaying(
 				modifier = Modifier
 					.fillMaxWidth()
 					.height(4.dp)
+					.shadow(2.dp, RoundedCornerShape(2.dp))
 			)
 		}
 	}
