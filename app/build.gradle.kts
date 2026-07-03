@@ -44,6 +44,15 @@ android {
 				keyPassword = signingKeyPassword
 			}
 		}
+
+		// Stable debug signing (committed keystore) so each debug build installs over the previous
+		// one without an uninstall. Standard Android debug credentials; not sensitive.
+		getByName("debug") {
+			storeFile = file("debug.keystore")
+			storePassword = "android"
+			keyAlias = "androiddebugkey"
+			keyPassword = "android"
+		}
 	}
 
 	dependenciesInfo {
