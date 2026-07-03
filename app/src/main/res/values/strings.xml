@@ -509,6 +509,12 @@
     <string name="pref_screensaver_visualizer_covercolor_description">Tint the visualizer with an accent color sampled from the cover</string>
     <string name="pref_screensaver_centered_layout">Centered player layout</string>
     <string name="pref_screensaver_centered_layout_description">Center the clock and track info over the cover so the visualizer surrounds them</string>
+    <string name="pref_screensaver_hide_song_title">Hide song title</string>
+    <string name="pref_screensaver_hide_song_title_description">Don\'t show the track title in the music screensaver</string>
+    <string name="pref_screensaver_hide_artist">Hide artist</string>
+    <string name="pref_screensaver_hide_artist_description">Don\'t show the artist in the music screensaver</string>
+    <string name="pref_screensaver_hide_clock">Hide clock</string>
+    <string name="pref_screensaver_hide_clock_description">Don\'t show the clock in the music screensaver</string>
     <string name="enable_reactive_homepage">Enable reactive homepage</string>
     <string name="not_set">Not set</string>
     <string name="lbl_album_artists">Album artists</string>

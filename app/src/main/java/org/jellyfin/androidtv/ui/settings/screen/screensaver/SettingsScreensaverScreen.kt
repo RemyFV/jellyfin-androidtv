@@ -131,6 +131,39 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
+			var screensaverHideSongTitle by rememberPreference(userPreferences, UserPreferences.screensaverHideSongTitle)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_hide_song_title)) },
+				trailingContent = { Checkbox(checked = screensaverHideSongTitle) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_hide_song_title_description)) },
+				onClick = { screensaverHideSongTitle = !screensaverHideSongTitle }
+			)
+		}
+
+		item {
+			var screensaverHideArtist by rememberPreference(userPreferences, UserPreferences.screensaverHideArtist)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_hide_artist)) },
+				trailingContent = { Checkbox(checked = screensaverHideArtist) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_hide_artist_description)) },
+				onClick = { screensaverHideArtist = !screensaverHideArtist }
+			)
+		}
+
+		item {
+			var screensaverHideClock by rememberPreference(userPreferences, UserPreferences.screensaverHideClock)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_hide_clock)) },
+				trailingContent = { Checkbox(checked = screensaverHideClock) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_hide_clock_description)) },
+				onClick = { screensaverHideClock = !screensaverHideClock }
+			)
+		}
+
+		item {
 			var screensaverAgeRatingRequired by rememberPreference(userPreferences, UserPreferences.screensaverAgeRatingRequired)
 
 			ListButton(

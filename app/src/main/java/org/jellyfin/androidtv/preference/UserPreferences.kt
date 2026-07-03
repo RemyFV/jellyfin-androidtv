@@ -257,6 +257,21 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverCenteredLayout = booleanPreference("screensaver_centered_layout", false)
 
 		/**
+		 * Hide the song title in the now-playing screensaver.
+		 */
+		var screensaverHideSongTitle = booleanPreference("screensaver_hide_song_title", false)
+
+		/**
+		 * Hide the artist in the now-playing screensaver.
+		 */
+		var screensaverHideArtist = booleanPreference("screensaver_hide_artist", false)
+
+		/**
+		 * Hide the clock in the now-playing screensaver (independent of the global clock setting).
+		 */
+		var screensaverHideClock = booleanPreference("screensaver_hide_clock", false)
+
+		/**
 		 * Delay when starting video playback after loading the video player.
 		 */
 		var videoStartDelay = longPreference("video_start_delay", 0)

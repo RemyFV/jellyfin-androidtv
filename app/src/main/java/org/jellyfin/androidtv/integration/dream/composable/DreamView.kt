@@ -36,12 +36,15 @@ fun DreamView(
 		}
 	}
 
-	// Header overlay. The now-playing centered layout draws its own centered clock, so suppress the
-	// default top-right one in that case.
-	val centeredNowPlaying = content is DreamContent.NowPlaying &&
-		koinInject<UserPreferences>()[UserPreferences.screensaverCenteredLayout]
+	// Header overlay. For now-playing, the centered layout draws its own centered clock and the
+	// clock-hide option removes it entirely, so suppress the default top-right one in both cases.
+	val preferences = koinInject<UserPreferences>()
+	val suppressHeaderClock = content is DreamContent.NowPlaying && (
+		preferences[UserPreferences.screensaverCenteredLayout] ||
+			preferences[UserPreferences.screensaverHideClock]
+		)
 
 	DreamHeader(
-		showClock = showClock && !centeredNowPlaying,
+		showClock = showClock && !suppressHeaderClock,
 	)
 }
