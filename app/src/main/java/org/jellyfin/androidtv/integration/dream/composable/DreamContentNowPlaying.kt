@@ -1,7 +1,6 @@
 package org.jellyfin.androidtv.integration.dream.composable
 
 import android.widget.ImageView
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jellyfin.androidtv.integration.dream.model.DreamContent
@@ -31,14 +28,15 @@ import org.jellyfin.androidtv.ui.base.SeekbarDefaults
 import org.jellyfin.androidtv.ui.base.Text
 import org.jellyfin.androidtv.ui.composable.AsyncImage
 import org.jellyfin.androidtv.ui.composable.LyricsDtoBox
-import org.jellyfin.androidtv.ui.composable.blurHashPainter
 import org.jellyfin.androidtv.ui.composable.modifier.fadingEdges
 import org.jellyfin.androidtv.ui.composable.modifier.overscan
 import org.jellyfin.androidtv.ui.composable.rememberPlayerPositionInfo
 import org.jellyfin.androidtv.ui.player.base.PlayerSeekbar
 import org.jellyfin.androidtv.util.apiclient.albumPrimaryImage
 import org.jellyfin.androidtv.util.apiclient.getUrl
+import org.jellyfin.androidtv.util.apiclient.itemBackdropImages
 import org.jellyfin.androidtv.util.apiclient.itemImages
+import org.jellyfin.androidtv.util.apiclient.parentBackdropImages
 import org.jellyfin.androidtv.util.apiclient.parentImages
 import org.jellyfin.playback.core.PlaybackManager
 import org.jellyfin.playback.core.model.PlayState
@@ -62,13 +60,18 @@ fun DreamContentNowPlaying(
 		?: content.item.albumPrimaryImage
 		?: content.item.parentImages[ImageType.PRIMARY]
 
+	// Prefer a real backdrop (e.g. the album-cover backdrop) over the low-res blurhash wash,
+	// falling back to the cover so there is always a full-resolution background.
+	val backgroundImage = content.item.itemBackdropImages.firstOrNull()
+		?: content.item.parentBackdropImages.firstOrNull()
+		?: primaryImage
+
 	// Background
-	if (primaryImage?.blurHash != null) {
-		Image(
-			painter = blurHashPainter(primaryImage.blurHash, IntSize(32, 32)),
-			contentDescription = null,
-			alignment = Alignment.Center,
-			contentScale = ContentScale.Crop,
+	if (backgroundImage != null) {
+		AsyncImage(
+			url = backgroundImage.getUrl(api),
+			blurHash = backgroundImage.blurHash,
+			scaleType = ImageView.ScaleType.CENTER_CROP,
 			modifier = Modifier.fillMaxSize(),
 		)
 
