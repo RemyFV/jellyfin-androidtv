@@ -23,6 +23,7 @@ fun getScreensaverAgeRatingOptions() = buildList {
 fun getScreensaverTimeoutOptions() = buildList {
 	val context = LocalContext.current
 
+	add(5.seconds to context.getQuantityString(R.plurals.seconds, 5))
 	add(30.seconds to context.getQuantityString(R.plurals.seconds, 30))
 	add(1.minutes to context.getQuantityString(R.plurals.minutes, 1))
 	add(2.5.minutes to context.getQuantityString(R.plurals.minutes, 2.5))
