@@ -26,7 +26,8 @@ import kotlin.math.sin
  *
  * @param radial draw a mirrored oval arc on each side of the cover instead of straight edge bars.
  * @param centerOut mirror the spectrum around the middle (bass in the center).
- * @param colors bars are coloured with a gradient across these stops (1 = flat colour).
+ * @param colorStops bars are coloured with a gradient sampled at (position 0..1 -> colour). A single
+ * stop means a flat colour.
  * @param topInset leave room at the top for the (top-right) clock; not needed with a centered clock.
  */
 @Composable
@@ -34,7 +35,7 @@ fun AudioVisualizer(
 	modifier: Modifier = Modifier,
 	radial: Boolean = false,
 	centerOut: Boolean = false,
-	colors: List<Color> = listOf(Color.White),
+	colorStops: List<Pair<Float, Color>> = listOf(0f to Color.White),
 	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
@@ -65,16 +66,24 @@ fun AudioVisualizer(
 			slot.coerceIn(0, n - 1)
 		}
 
+		fun sampleStops(frac: Float): Color {
+			if (colorStops.size == 1) return colorStops[0].second
+			if (frac <= colorStops.first().first) return colorStops.first().second
+			if (frac >= colorStops.last().first) return colorStops.last().second
+			for (i in 1 until colorStops.size) {
+				val (f1, c1) = colorStops[i]
+				if (frac <= f1) {
+					val (f0, c0) = colorStops[i - 1]
+					val t = if (f1 > f0) (frac - f0) / (f1 - f0) else 0f
+					return lerp(c0, c1, t)
+				}
+			}
+			return colorStops.last().second
+		}
+
 		fun barColor(slot: Int, v: Float): Color {
 			val frac = if (n == 1) 0f else slot.toFloat() / (n - 1)
-			val base = if (colors.size == 1) {
-				colors[0]
-			} else {
-				val scaled = frac * (colors.size - 1)
-				val idx = scaled.toInt().coerceIn(0, colors.size - 2)
-				lerp(colors[idx], colors[idx + 1], scaled - idx)
-			}
-			return base.copy(alpha = 0.5f + 0.5f * v)
+			return sampleStops(frac).copy(alpha = 0.5f + 0.5f * v)
 		}
 
 		if (radial) {
@@ -87,7 +96,7 @@ fun AudioVisualizer(
 			// the arcs hug the edges. Arc span kept narrow enough to stay on-screen.
 			val a = coverHalf * 1.02f
 			val b = coverHalf * 1.5f
-			val maxLen = size.height * 0.13f
+			val maxLen = size.height * 0.195f
 			val thickness = (size.height / (n * 1.7f)).coerceAtLeast(2f)
 			val halfArc = (38.0 * Math.PI / 180.0).toFloat()
 

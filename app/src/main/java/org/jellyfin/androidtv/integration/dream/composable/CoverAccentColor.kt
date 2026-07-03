@@ -19,40 +19,40 @@ import org.koin.compose.koinInject
 import kotlin.math.abs
 import kotlin.math.min
 
-private val WhiteOnly = listOf(Color.White)
+private val WhiteStops = listOf(0f to Color.White)
 private const val BUCKETS = 12
 private const val PALETTE_SIZE = 3
 
 /**
- * Loads the cover at [url] and returns up to [PALETTE_SIZE] vibrant accent colours sampled from it
- * (for a gradient), or a single white entry when disabled, unavailable, or the cover has no colourful
- * content. Recomputed when the url changes.
+ * Loads the cover at [url] and returns gradient stops (position 0..1 to colour) sampled from it: the
+ * most prevalent vivid colour sits in the centre with a band sized by its share, the next two flank
+ * it. Returns a single white stop when disabled, unavailable, or the cover has no colourful content.
  */
 @Composable
-fun rememberCoverAccentColors(url: String?, enabled: Boolean): List<Color> {
-	if (!enabled || url == null) return WhiteOnly
+fun rememberVisualizerColorStops(url: String?, enabled: Boolean): List<Pair<Float, Color>> {
+	if (!enabled || url == null) return WhiteStops
 
 	val context = LocalContext.current
 	val imageLoader = koinInject<ImageLoader>()
-	var colors by remember(url) { mutableStateOf(WhiteOnly) }
+	var stops by remember(url) { mutableStateOf(WhiteStops) }
 
 	LaunchedEffect(url) {
-		val palette = withContext(Dispatchers.IO) {
+		val extracted = withContext(Dispatchers.IO) {
 			runCatching {
 				val request = ImageRequest.Builder(context)
 					.data(url)
 					.allowHardware(false)
 					.build()
-				imageLoader.execute(request).image?.toBitmap()?.let(::extractPalette)
+				imageLoader.execute(request).image?.toBitmap()?.let(::extractStops)
 			}.getOrNull()
 		}
-		if (palette != null) colors = palette
+		if (extracted != null) stops = extracted
 	}
 
-	return colors
+	return stops
 }
 
-private fun extractPalette(source: Bitmap): List<Color> {
+private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 	val size = 48
 	val scaled = Bitmap.createScaledBitmap(source, size, size, true)
 	val pixels = IntArray(size * size)
@@ -79,7 +79,7 @@ private fun extractPalette(source: Bitmap): List<Color> {
 		bSum[bucket] += b * w
 	}
 
-	// Greedily pick the strongest hue buckets, keeping them apart so the gradient has variety.
+	// Rank hue buckets by prevalence, keeping them apart so the gradient has variety.
 	val picked = mutableListOf<Int>()
 	for (bucket in weight.indices.sortedByDescending { weight[it] }) {
 		if (weight[bucket] <= 0.0) break
@@ -87,14 +87,24 @@ private fun extractPalette(source: Bitmap): List<Color> {
 		if (picked.size == PALETTE_SIZE) break
 	}
 
-	if (picked.isEmpty()) return WhiteOnly
+	if (picked.isEmpty()) return WhiteStops
 
-	val result = picked
-		.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }
-		.toMutableList()
-	// Pad with hue-shifted variants if the cover has fewer distinct vivid hues.
-	while (result.size < PALETTE_SIZE) result.add(hueShift(result.last(), 40f))
-	return result
+	val colors = picked.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }.toMutableList()
+	while (colors.size < PALETTE_SIZE) colors.add(hueShift(colors.last(), 40f))
+
+	// picked[0] is the most prevalent; centre it with a band sized by its share of the top three.
+	val total = picked.sumOf { weight[it] }.coerceAtLeast(1e-6)
+	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.12, 0.38).toFloat()
+
+	val dominant = colors[0]
+	val left = colors[1]
+	val right = colors[2]
+	return listOf(
+		0f to left,
+		(0.5f - centerHalf) to dominant,
+		(0.5f + centerHalf) to dominant,
+		1f to right,
+	)
 }
 
 private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double): Color {
