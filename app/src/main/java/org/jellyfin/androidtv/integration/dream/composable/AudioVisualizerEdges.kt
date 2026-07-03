@@ -83,11 +83,13 @@ fun AudioVisualizer(
 			val cx = size.width / 2f
 			val cy = size.height / 2f
 			val coverHalf = size.height * 0.5f
+			// Tall (vertical) oval: horizontal axis at the cover's side edges, taller vertically so
+			// the arcs hug the edges. Arc span kept narrow enough to stay on-screen.
 			val a = coverHalf * 1.02f
-			val b = coverHalf * 0.78f
+			val b = coverHalf * 1.5f
 			val maxLen = size.height * 0.13f
 			val thickness = (size.height / (n * 1.7f)).coerceAtLeast(2f)
-			val halfArc = (60.0 * Math.PI / 180.0).toFloat()
+			val halfArc = (38.0 * Math.PI / 180.0).toFloat()
 
 			for (i in 0 until n) {
 				val v = bars[bandFor(i)]
