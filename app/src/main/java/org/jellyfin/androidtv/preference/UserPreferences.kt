@@ -226,6 +226,11 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverHideNowPlayingCover = booleanPreference("screensaver_hide_nowplaying_cover", false)
 
 		/**
+		 * Show synced lyrics over the backdrop in the now-playing screensaver.
+		 */
+		var screensaverShowLyrics = booleanPreference("screensaver_show_lyrics", true)
+
+		/**
 		 * Delay when starting video playback after loading the video player.
 		 */
 		var videoStartDelay = longPreference("video_start_delay", 0)

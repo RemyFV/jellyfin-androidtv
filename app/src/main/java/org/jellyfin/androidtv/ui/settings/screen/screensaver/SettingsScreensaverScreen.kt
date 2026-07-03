@@ -65,6 +65,17 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
+			var screensaverShowLyrics by rememberPreference(userPreferences, UserPreferences.screensaverShowLyrics)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_show_lyrics)) },
+				trailingContent = { Checkbox(checked = screensaverShowLyrics) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_show_lyrics_description)) },
+				onClick = { screensaverShowLyrics = !screensaverShowLyrics }
+			)
+		}
+
+		item {
 			var screensaverAgeRatingRequired by rememberPreference(userPreferences, UserPreferences.screensaverAgeRatingRequired)
 
 			ListButton(

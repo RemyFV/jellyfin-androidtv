@@ -497,6 +497,8 @@
     <string name="pref_screensaver_inapp_timeout">Start screensaver after</string>
     <string name="pref_screensaver_hide_nowplaying_cover">Hide album cover in music screensaver</string>
     <string name="pref_screensaver_hide_nowplaying_cover_description">Hide the small cover in the bottom-left; the backdrop already shows the artwork</string>
+    <string name="pref_screensaver_show_lyrics">Show lyrics in music screensaver</string>
+    <string name="pref_screensaver_show_lyrics_description">Show synced lyrics over the backdrop during playback</string>
     <string name="enable_reactive_homepage">Enable reactive homepage</string>
     <string name="not_set">Not set</string>
     <string name="lbl_album_artists">Album artists</string>
