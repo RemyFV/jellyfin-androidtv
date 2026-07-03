@@ -12,17 +12,28 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * Draws a real-time audio spectrum as mirrored bars hugging the left and right edges - over the
- * blurred side fill of the now-playing backdrop. Values come from [AudioSpectrum]; a per-frame
- * peak-decay (fast attack, slow release) keeps the motion smooth regardless of the audio cadence.
+ * Real-time audio spectrum overlay for the now-playing screensaver, driven by [AudioSpectrum].
+ *
+ * @param radial draw a mirrored arc on each side instead of straight edge bars.
+ * @param centerOut mirror the spectrum around the middle (bass in the center) instead of running
+ * top-to-bottom / along the arc.
+ * @param color bar colour.
  */
 @Composable
-fun AudioVisualizerEdges(
+fun AudioVisualizer(
 	modifier: Modifier = Modifier,
+	radial: Boolean = false,
+	centerOut: Boolean = false,
 	color: Color = Color.White,
+	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
 
@@ -45,33 +56,70 @@ fun AudioVisualizerEdges(
 		val n = bars.size
 		if (n == 0) return@Canvas
 
-		val slot = size.height / n
-		val barHeight = slot * 0.55f
-		val maxLen = size.width * 0.16f
-		val radius = CornerRadius(barHeight / 2f, barHeight / 2f)
+		// Map a slot position to a band index (center-out mirrors low frequencies to the middle).
+		fun bandFor(slot: Int, slots: Int): Int = if (centerOut) {
+			val d = abs(slot - (slots - 1) / 2f) / ((slots - 1) / 2f)
+			(d * (n - 1)).toInt().coerceIn(0, n - 1)
+		} else {
+			(slot.toFloat() / (slots - 1) * (n - 1)).toInt().coerceIn(0, n - 1)
+		}
 
-		for (i in 0 until n) {
-			val v = bars[i]
-			if (v <= 0.01f) continue
+		if (radial) {
+			// Two mirrored arcs in the side wings, bars radiating outward.
+			val cx = size.width / 2f
+			val cy = size.height / 2f
+			val r0 = size.height * 0.48f
+			val maxLen = (size.width / 2f - r0).coerceAtLeast(size.height * 0.12f) * 0.9f
+			val thickness = (size.height / (n * 1.7f)).coerceAtLeast(2f)
+			val halfArc = (62.0 * PI / 180.0).toFloat()
 
-			val len = v * maxLen
-			val y = i * slot + (slot - barHeight) / 2f
-			val barColor = color.copy(alpha = 0.25f + 0.55f * v)
+			for (i in 0 until n) {
+				val frac = if (n == 1) 0.5f else i.toFloat() / (n - 1)
+				val angle = -halfArc + frac * (2f * halfArc)
+				val v = bars[bandFor(i, n)]
+				if (v <= 0.01f) continue
+				val len = v * maxLen
+				val ca = cos(angle)
+				val sa = sin(angle)
+				val barColor = color.copy(alpha = 0.25f + 0.55f * v)
 
-			// Left edge, growing inward.
-			drawRoundRect(
-				color = barColor,
-				topLeft = Offset(0f, y),
-				size = Size(len, barHeight),
-				cornerRadius = radius,
-			)
-			// Right edge, mirrored.
-			drawRoundRect(
-				color = barColor,
-				topLeft = Offset(size.width - len, y),
-				size = Size(len, barHeight),
-				cornerRadius = radius,
-			)
+				// Right arc.
+				drawLine(
+					color = barColor,
+					start = Offset(cx + ca * r0, cy + sa * r0),
+					end = Offset(cx + ca * (r0 + len), cy + sa * (r0 + len)),
+					strokeWidth = thickness,
+					cap = StrokeCap.Round,
+				)
+				// Left arc (mirrored across the vertical axis).
+				drawLine(
+					color = barColor,
+					start = Offset(cx - ca * r0, cy + sa * r0),
+					end = Offset(cx - ca * (r0 + len), cy + sa * (r0 + len)),
+					strokeWidth = thickness,
+					cap = StrokeCap.Round,
+				)
+			}
+		} else {
+			// Straight bars hugging each edge. Top inset keeps them clear of the top-right clock
+			// (not needed when the clock is centered by the focused layout).
+			val inset = if (topInset) size.height * 0.10f else 0f
+			val usableH = size.height - inset
+			val slot = usableH / n
+			val barHeight = slot * 0.55f
+			val maxLen = size.width * 0.16f
+			val radius = CornerRadius(barHeight / 2f, barHeight / 2f)
+
+			for (i in 0 until n) {
+				val v = bars[bandFor(i, n)]
+				if (v <= 0.01f) continue
+				val len = v * maxLen
+				val y = inset + i * slot + (slot - barHeight) / 2f
+				val barColor = color.copy(alpha = 0.25f + 0.55f * v)
+
+				drawRoundRect(barColor, Offset(0f, y), Size(len, barHeight), radius)
+				drawRoundRect(barColor, Offset(size.width - len, y), Size(len, barHeight), radius)
+			}
 		}
 	}
 }

@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import org.jellyfin.androidtv.integration.dream.model.DreamContent
+import org.jellyfin.androidtv.preference.UserPreferences
+import org.koin.compose.koinInject
 
 @Composable
 fun DreamView(
@@ -34,8 +36,12 @@ fun DreamView(
 		}
 	}
 
-	// Header overlay
+	// Header overlay. The now-playing centered layout draws its own centered clock, so suppress the
+	// default top-right one in that case.
+	val centeredNowPlaying = content is DreamContent.NowPlaying &&
+		koinInject<UserPreferences>()[UserPreferences.screensaverCenteredLayout]
+
 	DreamHeader(
-		showClock = showClock,
+		showClock = showClock && !centeredNowPlaying,
 	)
 }

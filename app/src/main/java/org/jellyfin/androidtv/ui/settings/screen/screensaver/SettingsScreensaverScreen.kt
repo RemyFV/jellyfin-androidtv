@@ -87,6 +87,50 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
+			var screensaverVisualizerRadial by rememberPreference(userPreferences, UserPreferences.screensaverVisualizerRadial)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_visualizer_radial)) },
+				trailingContent = { Checkbox(checked = screensaverVisualizerRadial) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_visualizer_radial_description)) },
+				onClick = { screensaverVisualizerRadial = !screensaverVisualizerRadial }
+			)
+		}
+
+		item {
+			var screensaverVisualizerCenterOut by rememberPreference(userPreferences, UserPreferences.screensaverVisualizerCenterOut)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_visualizer_centerout)) },
+				trailingContent = { Checkbox(checked = screensaverVisualizerCenterOut) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_visualizer_centerout_description)) },
+				onClick = { screensaverVisualizerCenterOut = !screensaverVisualizerCenterOut }
+			)
+		}
+
+		item {
+			var screensaverVisualizerCoverColor by rememberPreference(userPreferences, UserPreferences.screensaverVisualizerCoverColor)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_visualizer_covercolor)) },
+				trailingContent = { Checkbox(checked = screensaverVisualizerCoverColor) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_visualizer_covercolor_description)) },
+				onClick = { screensaverVisualizerCoverColor = !screensaverVisualizerCoverColor }
+			)
+		}
+
+		item {
+			var screensaverCenteredLayout by rememberPreference(userPreferences, UserPreferences.screensaverCenteredLayout)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_centered_layout)) },
+				trailingContent = { Checkbox(checked = screensaverCenteredLayout) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_centered_layout_description)) },
+				onClick = { screensaverCenteredLayout = !screensaverCenteredLayout }
+			)
+		}
+
+		item {
 			var screensaverAgeRatingRequired by rememberPreference(userPreferences, UserPreferences.screensaverAgeRatingRequired)
 
 			ListButton(

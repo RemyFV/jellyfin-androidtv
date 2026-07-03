@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
@@ -37,8 +38,23 @@ object AudioSpectrum {
 	/** Per-band magnitudes in 0..1, low to high frequency. */
 	val bands: StateFlow<FloatArray> = _bands.asStateFlow()
 
-	@Volatile
-	var enabled: Boolean = false
+	// Reference count rather than a boolean: during a track change the screensaver briefly keeps both
+	// the outgoing and incoming composables alive, so a boolean would be turned off by the departing
+	// one right after the new one turned it on.
+	private val activeCount = AtomicInteger(0)
+
+	val enabled: Boolean get() = activeCount.get() > 0
+
+	fun acquire() {
+		activeCount.incrementAndGet()
+	}
+
+	fun release() {
+		if (activeCount.decrementAndGet() <= 0) {
+			activeCount.set(0)
+			reset()
+		}
+	}
 
 	internal fun publish(values: FloatArray) {
 		_bands.value = values

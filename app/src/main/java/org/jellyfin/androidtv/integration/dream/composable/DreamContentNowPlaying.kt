@@ -24,11 +24,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jellyfin.androidtv.integration.dream.model.DreamContent
 import org.jellyfin.androidtv.preference.UserPreferences
+import org.jellyfin.androidtv.preference.constant.ClockBehavior
 import org.jellyfin.androidtv.ui.base.SeekbarDefaults
 import org.jellyfin.androidtv.ui.base.Text
 import org.jellyfin.androidtv.ui.composable.AsyncImage
@@ -37,6 +40,7 @@ import org.jellyfin.androidtv.ui.composable.modifier.fadingEdges
 import org.jellyfin.androidtv.ui.composable.modifier.overscan
 import org.jellyfin.androidtv.ui.composable.rememberPlayerPositionInfo
 import org.jellyfin.androidtv.ui.player.base.PlayerSeekbar
+import org.jellyfin.androidtv.ui.shared.toolbar.ToolbarClock
 import org.jellyfin.androidtv.util.apiclient.albumPrimaryImage
 import org.jellyfin.androidtv.util.apiclient.getUrl
 import org.jellyfin.androidtv.util.apiclient.itemBackdropImages
@@ -69,9 +73,18 @@ fun DreamContentNowPlaying(
 	val api = koinInject<ApiClient>()
 	val playbackManager = koinInject<PlaybackManager>()
 	val userPreferences = koinInject<UserPreferences>()
+
 	val hideNowPlayingCover = userPreferences[UserPreferences.screensaverHideNowPlayingCover]
 	val showLyrics = userPreferences[UserPreferences.screensaverShowLyrics]
 	val showVisualizer = userPreferences[UserPreferences.screensaverAudioVisualizer]
+	val visualizerRadial = userPreferences[UserPreferences.screensaverVisualizerRadial]
+	val visualizerCenterOut = userPreferences[UserPreferences.screensaverVisualizerCenterOut]
+	val visualizerCoverColor = userPreferences[UserPreferences.screensaverVisualizerCoverColor]
+	val centeredLayout = userPreferences[UserPreferences.screensaverCenteredLayout]
+	val clockEnabled = userPreferences[UserPreferences.clockBehavior].let {
+		it == ClockBehavior.ALWAYS || it == ClockBehavior.IN_MENUS
+	}
+
 	val lyrics = content.entry.run { lyricsFlow.collectAsState(lyrics) }.value
 
 	val primaryImage = content.item.itemImages[ImageType.PRIMARY]
@@ -84,6 +97,19 @@ fun DreamContentNowPlaying(
 		?: content.item.parentBackdropImages.firstOrNull()
 		?: primaryImage
 
+	val accentColor = rememberCoverAccentColor(primaryImage?.getUrl(api), visualizerCoverColor)
+
+	val artistText = content.item.run {
+		val artistNames = artists.orEmpty()
+		val albumArtistNames = albumArtists?.mapNotNull { it.name }.orEmpty()
+
+		when {
+			artistNames.isNotEmpty() -> artistNames
+			albumArtistNames.isNotEmpty() -> albumArtistNames
+			else -> listOfNotNull(albumArtist)
+		}.joinToString(", ")
+	}
+
 	// Background
 	if (backgroundImage != null) {
 		AsyncImage(
@@ -94,21 +120,22 @@ fun DreamContentNowPlaying(
 		)
 	}
 
-	// Audio visualizer on the edges (over the blurred side fill)
+	// Audio visualizer (over the side fill). No top inset in the centered layout: the clock is
+	// centered, so the top corners are free.
 	if (showVisualizer) {
 		DisposableEffect(Unit) {
-			AudioSpectrum.enabled = true
-			onDispose {
-				AudioSpectrum.enabled = false
-				AudioSpectrum.reset()
-			}
+			AudioSpectrum.acquire()
+			onDispose { AudioSpectrum.release() }
 		}
 
-		AudioVisualizerEdges(
+		AudioVisualizer(
 			modifier = Modifier
 				.fillMaxSize()
 				.overscan(),
-			color = Color.White,
+			radial = visualizerRadial,
+			centerOut = visualizerCenterOut,
+			color = accentColor,
+			topInset = !centeredLayout,
 		)
 	}
 
@@ -132,54 +159,42 @@ fun DreamContentNowPlaying(
 		)
 	}
 
-	// Metadata overlay (includes title / progress)
-	Row(
-		verticalAlignment = Alignment.Bottom,
-		horizontalArrangement = Arrangement.spacedBy(20.dp),
-		modifier = Modifier
-			.align(Alignment.BottomStart)
-			.overscan(),
-	) {
-		if (primaryImage != null && !hideNowPlayingCover) {
-			AsyncImage(
-				url = primaryImage.getUrl(api),
-				blurHash = primaryImage.blurHash,
-				scaleType = ImageView.ScaleType.CENTER_CROP,
-				modifier = Modifier
-					.size(128.dp)
-					.clip(RoundedCornerShape(5.dp))
-			)
+	// Centered clock at the top for the focused layout (the default top-right clock is suppressed
+	// by DreamView in this case).
+	if (centeredLayout && clockEnabled) {
+		Box(
+			modifier = Modifier
+				.align(Alignment.TopCenter)
+				.overscan(),
+		) {
+			ToolbarClock()
 		}
+	}
+
+	if (centeredLayout) {
+		// Track info + seek bar centered over the (square) cover, so the visualizer frames them.
+		val configuration = LocalConfiguration.current
+		val coverFraction = (configuration.screenHeightDp.toFloat() / configuration.screenWidthDp)
+			.coerceIn(0.35f, 1f)
 
 		Column(
+			horizontalAlignment = Alignment.CenterHorizontally,
 			modifier = Modifier
-				.padding(bottom = 10.dp)
+				.align(Alignment.BottomCenter)
+				.fillMaxWidth(coverFraction)
+				.overscan()
+				.padding(bottom = 24.dp),
 		) {
 			Text(
 				text = content.item.name.orEmpty(),
-				style = TextStyle(
-					color = Color.White,
-					fontSize = 26.sp,
-					shadow = overlayShadow,
-				),
+				textAlign = TextAlign.Center,
+				style = TextStyle(color = Color.White, fontSize = 26.sp, shadow = overlayShadow),
 			)
 
 			Text(
-				text = content.item.run {
-					val artistNames = artists.orEmpty()
-					val albumArtistNames = albumArtists?.mapNotNull { it.name }.orEmpty()
-
-					when {
-						artistNames.isNotEmpty() -> artistNames
-						albumArtistNames.isNotEmpty() -> albumArtistNames
-						else -> listOfNotNull(albumArtist)
-					}.joinToString(", ")
-				},
-				style = TextStyle(
-					color = Color(0.8f, 0.8f, 0.8f),
-					fontSize = 18.sp,
-					shadow = overlayShadow,
-				),
+				text = artistText,
+				textAlign = TextAlign.Center,
+				style = TextStyle(color = Color(0.8f, 0.8f, 0.8f), fontSize = 18.sp, shadow = overlayShadow),
 			)
 
 			Spacer(modifier = Modifier.height(10.dp))
@@ -194,8 +209,66 @@ fun DreamContentNowPlaying(
 				modifier = Modifier
 					.fillMaxWidth()
 					.height(4.dp)
-					.shadow(2.dp, RoundedCornerShape(2.dp))
+					.shadow(2.dp, RoundedCornerShape(2.dp)),
 			)
+		}
+	} else {
+		// Default bottom-left metadata row.
+		Row(
+			verticalAlignment = Alignment.Bottom,
+			horizontalArrangement = Arrangement.spacedBy(20.dp),
+			modifier = Modifier
+				.align(Alignment.BottomStart)
+				.overscan(),
+		) {
+			if (primaryImage != null && !hideNowPlayingCover) {
+				AsyncImage(
+					url = primaryImage.getUrl(api),
+					blurHash = primaryImage.blurHash,
+					scaleType = ImageView.ScaleType.CENTER_CROP,
+					modifier = Modifier
+						.size(128.dp)
+						.clip(RoundedCornerShape(5.dp))
+				)
+			}
+
+			Column(
+				modifier = Modifier
+					.padding(bottom = 10.dp)
+			) {
+				Text(
+					text = content.item.name.orEmpty(),
+					style = TextStyle(
+						color = Color.White,
+						fontSize = 26.sp,
+						shadow = overlayShadow,
+					),
+				)
+
+				Text(
+					text = artistText,
+					style = TextStyle(
+						color = Color(0.8f, 0.8f, 0.8f),
+						fontSize = 18.sp,
+						shadow = overlayShadow,
+					),
+				)
+
+				Spacer(modifier = Modifier.height(10.dp))
+
+				PlayerSeekbar(
+					playbackManager = playbackManager,
+					colors = SeekbarDefaults.colors(
+						backgroundColor = Color.White.copy(alpha = 0.2f),
+						progressColor = Color.White,
+						bufferColor = Color.Transparent,
+					),
+					modifier = Modifier
+						.fillMaxWidth()
+						.height(4.dp)
+						.shadow(2.dp, RoundedCornerShape(2.dp))
+				)
+			}
 		}
 	}
 }

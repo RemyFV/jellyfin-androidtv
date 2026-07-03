@@ -236,6 +236,27 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverAudioVisualizer = booleanPreference("screensaver_audio_visualizer", false)
 
 		/**
+		 * Draw the audio visualizer as mirrored side arcs instead of straight edge bars.
+		 */
+		var screensaverVisualizerRadial = booleanPreference("screensaver_visualizer_radial", false)
+
+		/**
+		 * Mirror the audio visualizer around the middle (bass in the center).
+		 */
+		var screensaverVisualizerCenterOut = booleanPreference("screensaver_visualizer_centerout", false)
+
+		/**
+		 * Colour the audio visualizer using an accent colour sampled from the album cover.
+		 */
+		var screensaverVisualizerCoverColor = booleanPreference("screensaver_visualizer_covercolor", false)
+
+		/**
+		 * Center the clock and track info over the cover in the now-playing screensaver so the
+		 * visualizer surrounds them.
+		 */
+		var screensaverCenteredLayout = booleanPreference("screensaver_centered_layout", false)
+
+		/**
 		 * Delay when starting video playback after loading the video player.
 		 */
 		var videoStartDelay = longPreference("video_start_delay", 0)
