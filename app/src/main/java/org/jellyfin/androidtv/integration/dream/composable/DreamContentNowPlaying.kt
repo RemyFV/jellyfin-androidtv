@@ -68,6 +68,7 @@ fun DreamContentNowPlaying(
 	val playbackManager = koinInject<PlaybackManager>()
 	val userPreferences = koinInject<UserPreferences>()
 	val hideNowPlayingCover = userPreferences[UserPreferences.screensaverHideNowPlayingCover]
+	val showLyrics = userPreferences[UserPreferences.screensaverShowLyrics]
 	val lyrics = content.entry.run { lyricsFlow.collectAsState(lyrics) }.value
 
 	val primaryImage = content.item.itemImages[ImageType.PRIMARY]
@@ -91,7 +92,7 @@ fun DreamContentNowPlaying(
 	}
 
 	// Lyrics overlay (on top of background)
-	if (lyrics != null) {
+	if (lyrics != null && showLyrics) {
 		val playState by remember { playbackManager.state.playState }.collectAsState()
 		val positionInfo by rememberPlayerPositionInfo(playbackManager)
 
@@ -102,6 +103,7 @@ fun DreamContentNowPlaying(
 			paused = playState != PlayState.PLAYING,
 			fontSize = 22.sp,
 			color = Color.White,
+			shadow = overlayShadow,
 			modifier = Modifier
 				.fillMaxSize()
 				.fadingEdges(vertical = 250.dp)

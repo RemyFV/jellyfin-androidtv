@@ -17,9 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measured
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -49,6 +51,7 @@ private fun LyricsLine(
 	color: Color,
 	active: Boolean = false,
 	gap: Dp = 15.dp,
+	shadow: Shadow? = null,
 ) {
 	val color by animateColorAsState(
 		targetValue = if (active) color else color.copy(alpha = 0.5f),
@@ -67,6 +70,7 @@ private fun LyricsLine(
 		textAlign = TextAlign.Center,
 		fontSize = fontSize,
 		color = color,
+		style = TextStyle(shadow = shadow),
 		modifier = Modifier
 			.padding(bottom = gap)
 			.scale(scale)
@@ -118,6 +122,7 @@ fun LyricsBox(
 	currentTimestamp: Duration = Duration.ZERO,
 	fontSize: TextUnit = LocalTextStyle.current.fontSize,
 	color: Color = LocalTextStyle.current.color,
+	shadow: Shadow? = null,
 ) {
 	var lineMeasurements by remember { mutableStateOf<List<Measured>>(emptyList()) }
 	val activeLine = lines.indexAtTimestamp(currentTimestamp)
@@ -148,6 +153,7 @@ fun LyricsBox(
 			active = index == activeLine,
 			fontSize = fontSize,
 			color = color,
+			shadow = shadow,
 		)
 	}
 }
@@ -161,6 +167,7 @@ fun LyricsBox(
 	paused: Boolean = false,
 	fontSize: TextUnit = LocalTextStyle.current.fontSize,
 	color: Color = LocalTextStyle.current.color,
+	shadow: Shadow? = null,
 ) = Box(modifier) {
 	var totalHeight by remember { mutableFloatStateOf(0f) }
 	val progress by rememberPlayerProgress(!paused, currentTimestamp, duration)
@@ -176,6 +183,7 @@ fun LyricsBox(
 			text = line,
 			fontSize = fontSize,
 			color = color,
+			shadow = shadow,
 		)
 	}
 }
@@ -189,6 +197,7 @@ fun LyricsDtoBox(
 	paused: Boolean = false,
 	fontSize: TextUnit = LocalTextStyle.current.fontSize,
 	color: Color = LocalTextStyle.current.color,
+	shadow: Shadow? = null,
 ) = Box(modifier) {
 	val lyrics = lyricDto.lyrics
 	val isTimed = lyrics.firstOrNull()?.start != null
@@ -200,6 +209,7 @@ fun LyricsDtoBox(
 			currentTimestamp = currentTimestamp,
 			fontSize = fontSize,
 			color = color,
+			shadow = shadow,
 		)
 	} else {
 		LyricsBox(
@@ -209,6 +219,7 @@ fun LyricsDtoBox(
 			paused = paused,
 			fontSize = fontSize,
 			color = color,
+			shadow = shadow,
 		)
 	}
 }
