@@ -3,7 +3,7 @@ package org.jellyfin.playback.media3.exoplayer
 import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.TeeAudioProcessor
+import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.ln
 import kotlin.math.log10
@@ -22,11 +23,11 @@ import kotlin.math.sin
 
 /**
  * Real-time audio spectrum sourced by tapping the decoded PCM inside our own ExoPlayer audio sink
- * (via a [TeeAudioProcessor]). This needs no RECORD_AUDIO permission because it reads the audio we
- * are decoding rather than capturing the system output.
+ * (via a passthrough [AudioProcessor]). This needs no RECORD_AUDIO permission because it reads the
+ * audio we are decoding rather than capturing the system output.
  *
- * The tap only does work while [enabled] is true (set by the UI that draws the visualizer), so it is
- * effectively free when nothing is visualizing.
+ * The tap only does FFT work while [enabled] is true (set by the UI that draws the visualizer), so
+ * it is effectively free when nothing is visualizing.
  */
 object AudioSpectrum {
 	const val BAND_COUNT = 48
@@ -49,8 +50,8 @@ object AudioSpectrum {
 }
 
 /**
- * A [DefaultRenderersFactory] that routes audio through a [TeeAudioProcessor] feeding [SpectrumSink].
- * The processor forwards audio unchanged, so playback is unaffected.
+ * A [DefaultRenderersFactory] that routes audio through a [SpectrumAudioProcessor]. The processor
+ * forwards audio unchanged, so playback is unaffected.
  */
 @UnstableApi
 class AudioTapRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
@@ -61,46 +62,60 @@ class AudioTapRenderersFactory(context: Context) : DefaultRenderersFactory(conte
 	): AudioSink = DefaultAudioSink.Builder(context)
 		.setEnableFloatOutput(enableFloatOutput)
 		.setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-		.setAudioProcessors(arrayOf<AudioProcessor>(TeeAudioProcessor(SpectrumSink)))
+		.setAudioProcessors(arrayOf<AudioProcessor>(SpectrumAudioProcessor()))
 		.build()
 }
 
 /**
- * Accumulates PCM into FFT-sized frames, computes a log-spaced magnitude spectrum and publishes it
- * to [AudioSpectrum]. Runs on the audio thread; kept allocation-light (reused buffers, one small
- * result array per frame).
+ * Passthrough audio processor that copies each PCM buffer through unchanged while accumulating
+ * FFT-sized frames, computing a log-spaced magnitude spectrum and publishing it to [AudioSpectrum].
+ * Runs on the audio thread; kept allocation-light (reused buffers, one small result array per frame).
  */
 @UnstableApi
-private object SpectrumSink : TeeAudioProcessor.AudioBufferSink {
-	private const val FFT_SIZE = 1024
-	private const val MIN_FREQ = 40f
-	private const val MAX_FREQ = 16000f
-	private const val DB_FLOOR = -60f
+private class SpectrumAudioProcessor : BaseAudioProcessor() {
+	private companion object {
+		const val FFT_SIZE = 1024
+		const val MIN_FREQ = 40f
+		const val MAX_FREQ = 16000f
+		const val DB_FLOOR = -60f
+	}
 
 	private var sampleRate = 44100
 	private var channelCount = 2
 	private var encoding = C.ENCODING_PCM_16BIT
 
 	private val window = FloatArray(FFT_SIZE) { i ->
-		(0.5f * (1f - cos(2.0 * Math.PI * i / (FFT_SIZE - 1)).toFloat()))
+		0.5f * (1f - cos(2.0 * Math.PI * i / (FFT_SIZE - 1)).toFloat())
 	}
 	private val ring = FloatArray(FFT_SIZE)
 	private var filled = 0
 	private val re = FloatArray(FFT_SIZE)
 	private val im = FloatArray(FFT_SIZE)
 
-	override fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
-		this.sampleRate = sampleRateHz
-		this.channelCount = channelCount.coerceAtLeast(1)
-		this.encoding = encoding
+	override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+		sampleRate = inputAudioFormat.sampleRate
+		channelCount = inputAudioFormat.channelCount.coerceAtLeast(1)
+		encoding = inputAudioFormat.encoding
 		filled = 0
+		// Passthrough: output format == input format (keeps this processor active as a tap).
+		return inputAudioFormat
 	}
 
-	override fun handleBuffer(buffer: ByteBuffer) {
-		if (!AudioSpectrum.enabled) return
+	override fun queueInput(inputBuffer: ByteBuffer) {
+		val remaining = inputBuffer.remaining()
+		if (remaining <= 0) return
 
+		if (AudioSpectrum.enabled) analyze(inputBuffer)
+
+		// Copy input straight to output unchanged.
+		val output = replaceOutputBuffer(remaining)
+		output.put(inputBuffer)
+		output.flip()
+	}
+
+	private fun analyze(inputBuffer: ByteBuffer) {
 		val ch = channelCount
-		val b = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+		val b = inputBuffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
 
 		when (encoding) {
 			C.ENCODING_PCM_16BIT -> while (b.remaining() >= 2 * ch) {
@@ -143,7 +158,7 @@ private object SpectrumSink : TeeAudioProcessor.AudioBufferSink {
 		for (i in 0 until AudioSpectrum.BAND_COUNT) {
 			val f0 = MIN_FREQ * pow(ratio, i.toFloat() / AudioSpectrum.BAND_COUNT)
 			val f1 = MIN_FREQ * pow(ratio, (i + 1f) / AudioSpectrum.BAND_COUNT)
-			var bin0 = (f0 * FFT_SIZE / sampleRate).toInt().coerceIn(1, half - 1)
+			val bin0 = (f0 * FFT_SIZE / sampleRate).toInt().coerceIn(1, half - 1)
 			val bin1 = (f1 * FFT_SIZE / sampleRate).toInt().coerceIn(bin0 + 1, half)
 
 			var mag = 0f
@@ -158,7 +173,7 @@ private object SpectrumSink : TeeAudioProcessor.AudioBufferSink {
 		AudioSpectrum.publish(bands)
 	}
 
-	private fun pow(base: Float, exp: Float): Float = kotlin.math.exp(exp * ln(base))
+	private fun pow(base: Float, exponent: Float): Float = exp(exponent * ln(base))
 
 	/** In-place iterative radix-2 FFT. */
 	private fun fft(re: FloatArray, im: FloatArray) {
