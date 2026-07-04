@@ -13,7 +13,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
 import kotlin.math.abs
@@ -138,6 +140,32 @@ fun AudioVisualizer(
 						Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = start, end = end),
 						start, end, thickness, StrokeCap.Round,
 					)
+				}
+			}
+			// Oscilloscope waveform traced along each oval, jittering in/out with the raw audio.
+			val wave = AudioSpectrum.waveform.value
+			if (wave.size >= 2) {
+				val waveAmp = h * 0.05f
+				val waveWidth = (thickness * 0.5f).coerceAtLeast(1.5f)
+				for (side in intArrayOf(1, -1)) {
+					val path = Path()
+					for (k in wave.indices) {
+						val ft = k.toFloat() / (wave.size - 1)
+						val tt = -halfArc + ft * (2f * halfArc)
+						val bx2 = a * cos(tt)
+						val by2 = b * sin(tt)
+						val d2 = hypot(bx2, by2).coerceAtLeast(1f)
+						var dx2 = (bx2 / d2) * side * (1f - dirHorizontal) + side * dirHorizontal
+						var dy2 = (by2 / d2) * (1f - dirHorizontal)
+						val dl2 = hypot(dx2, dy2).coerceAtLeast(1e-4f)
+						dx2 /= dl2
+						dy2 /= dl2
+						val off = wave[k] * waveAmp
+						val px = cx + side * (bx2 + xGap) + dx2 * off
+						val py = cy + by2 + dy2 * off
+						if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
+					}
+					drawPath(path, tipColor.copy(alpha = 0.85f), style = Stroke(width = waveWidth))
 				}
 			}
 		} else {
