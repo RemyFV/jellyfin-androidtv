@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
@@ -35,6 +36,7 @@ fun AudioVisualizer(
 	radial: Boolean = false,
 	centerOut: Boolean = false,
 	colorStops: List<Pair<Float, Color>> = listOf(0f to Color.White),
+	tipColor: Color = Color.White,
 	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
@@ -131,7 +133,11 @@ fun AudioVisualizer(
 					val start = Offset(baseX, baseY)
 					val end = Offset(baseX + dx * len, baseY + dy * len)
 
-					drawLine(c, start, end, thickness, StrokeCap.Round)
+					// Bar colour most of the way, fading to the contrast colour at the tip.
+					drawLine(
+						Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = start, end = end),
+						start, end, thickness, StrokeCap.Round,
+					)
 				}
 			}
 		} else {
@@ -148,10 +154,18 @@ fun AudioVisualizer(
 				if (v <= 0.01f) continue
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
+				val yc = y + barHeight / 2f
 				val c = barColor(i)
 
-				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
-				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
+				// Bar colour most of the way, fading to the contrast colour at the tip (inner end).
+				drawRoundRect(
+					Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = Offset(0f, yc), end = Offset(len, yc)),
+					Offset(0f, y), Size(len, barHeight), radius,
+				)
+				drawRoundRect(
+					Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = Offset(size.width, yc), end = Offset(size.width - len, yc)),
+					Offset(size.width - len, y), Size(len, barHeight), radius,
+				)
 			}
 		}
 	}
