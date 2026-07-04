@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
@@ -58,21 +57,6 @@ fun AudioVisualizer(
 	Canvas(modifier = modifier.fillMaxSize()) {
 		val n = bars.size
 		if (n == 0) return@Canvas
-
-		// Cheap glow: one wider stroke over the full bar (base -> tip) in the bar's own colour, with a
-		// gradient alpha - transparent through the base/middle, opaque at the tip. No blur, GPU-cheap.
-		fun drawGlow(start: Offset, end: Offset, width: Float, color: Color) {
-			drawLine(
-				Brush.linearGradient(
-					0f to color.copy(alpha = 0f),
-					0.5f to color.copy(alpha = 0f),
-					1f to color.copy(alpha = 0.55f),
-					start = start,
-					end = end,
-				),
-				start, end, width * 2.6f, StrokeCap.Round,
-			)
-		}
 
 		fun bandFor(slot: Int): Int = if (centerOut) {
 			val d = abs(slot - (n - 1) / 2f) / ((n - 1) / 2f)
@@ -147,9 +131,6 @@ fun AudioVisualizer(
 					val start = Offset(baseX, baseY)
 					val end = Offset(baseX + dx * len, baseY + dy * len)
 
-					// Glow over the full bar (fades in from the base, opaque at the tip).
-					drawGlow(start, end, thickness, c)
-
 					drawLine(c, start, end, thickness, StrokeCap.Round)
 				}
 			}
@@ -167,12 +148,7 @@ fun AudioVisualizer(
 				if (v <= 0.01f) continue
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
-				val yc = y + barHeight / 2f
 				val c = barColor(i)
-
-				// Glow over the full bar (fades in from the edge, opaque at the tip).
-				drawGlow(Offset(0f, yc), Offset(len, yc), barHeight, c)
-				drawGlow(Offset(size.width, yc), Offset(size.width - len, yc), barHeight, c)
 
 				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
 				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
