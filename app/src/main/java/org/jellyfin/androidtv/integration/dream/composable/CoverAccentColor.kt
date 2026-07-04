@@ -24,35 +24,46 @@ private const val BUCKETS = 12
 private const val PALETTE_SIZE = 3
 
 /**
- * Loads the cover at [url] and returns gradient stops (position 0..1 to colour) sampled from it: the
- * most prevalent vivid colour sits in the centre with a band sized by its share, the next two flank
- * it. Returns a single white stop when disabled, unavailable, or the cover has no colourful content.
+ * Visualizer colouring derived from the cover: gradient [stops] (position 0..1 to colour) and a
+ * contrasting [glow] colour (white on dark covers, black on light covers) for the bar glow.
+ */
+data class VisualizerPalette(
+	val stops: List<Pair<Float, Color>>,
+	val glow: Color,
+)
+
+private val DefaultPalette = VisualizerPalette(WhiteStops, Color.White)
+
+/**
+ * Loads the cover at [url] and derives the visualizer palette. When [useCoverColor] is off the bars
+ * stay white but the glow colour is still computed from the cover's brightness. Returns the default
+ * (white bars, white glow) when disabled or unavailable.
  */
 @Composable
-fun rememberVisualizerColorStops(url: String?, enabled: Boolean): List<Pair<Float, Color>> {
-	if (!enabled || url == null) return WhiteStops
+fun rememberVisualizerPalette(url: String?, enabled: Boolean, useCoverColor: Boolean): VisualizerPalette {
+	if (!enabled || url == null) return DefaultPalette
 
 	val context = LocalContext.current
 	val imageLoader = koinInject<ImageLoader>()
-	var stops by remember(url) { mutableStateOf(WhiteStops) }
+	var palette by remember(url, useCoverColor) { mutableStateOf(DefaultPalette) }
 
-	LaunchedEffect(url) {
+	LaunchedEffect(url, useCoverColor) {
 		val extracted = withContext(Dispatchers.IO) {
 			runCatching {
 				val request = ImageRequest.Builder(context)
 					.data(url)
 					.allowHardware(false)
 					.build()
-				imageLoader.execute(request).image?.toBitmap()?.let(::extractStops)
+				imageLoader.execute(request).image?.toBitmap()?.let { extractPalette(it, useCoverColor) }
 			}.getOrNull()
 		}
-		if (extracted != null) stops = extracted
+		if (extracted != null) palette = extracted
 	}
 
-	return stops
+	return palette
 }
 
-private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
+private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPalette {
 	val size = 48
 	val scaled = Bitmap.createScaledBitmap(source, size, size, true)
 	val pixels = IntArray(size * size)
@@ -63,11 +74,14 @@ private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 	val gSum = DoubleArray(BUCKETS)
 	val bSum = DoubleArray(BUCKETS)
 	val hsv = FloatArray(3)
+	var lumaSum = 0.0
 
 	for (p in pixels) {
 		val r = (p shr 16) and 0xFF
 		val g = (p shr 8) and 0xFF
 		val b = p and 0xFF
+		lumaSum += 0.299 * r + 0.587 * g + 0.114 * b
+
 		android.graphics.Color.RGBToHSV(r, g, b, hsv)
 		// Favour saturated, mid-bright pixels so accents are vivid, not muddy.
 		val w = (hsv[1] * hsv[1]) * (1f - abs(hsv[2] - 0.6f))
@@ -79,6 +93,20 @@ private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 		bSum[bucket] += b * w
 	}
 
+	// Glow contrasts with the cover: white on dark covers, black on light ones.
+	val avgLuma = (lumaSum / pixels.size) / 255.0
+	val glow = if (avgLuma > 0.5) Color.Black else Color.White
+
+	val stops = if (useCoverColor) buildStops(weight, rSum, gSum, bSum) else WhiteStops
+	return VisualizerPalette(stops, glow)
+}
+
+private fun buildStops(
+	weight: DoubleArray,
+	rSum: DoubleArray,
+	gSum: DoubleArray,
+	bSum: DoubleArray,
+): List<Pair<Float, Color>> {
 	// Rank hue buckets by prevalence, keeping them apart so the gradient has variety.
 	val picked = mutableListOf<Int>()
 	for (bucket in weight.indices.sortedByDescending { weight[it] }) {
@@ -90,18 +118,17 @@ private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 	if (picked.isEmpty()) return WhiteStops
 
 	val colors = picked.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }.toMutableList()
-	// If the cover has fewer distinct hues, pad with darker shades of the dominant colour rather than
-	// inventing new hues (a mostly-brown cover should stay brown, not gain blue/green).
+	// Pad with darker shades of the dominant colour rather than inventing new hues (a mostly-brown
+	// cover should stay brown, not gain blue/green).
 	var shadeFactor = 0.62f
 	while (colors.size < PALETTE_SIZE) {
 		colors.add(shade(colors[0], shadeFactor))
 		shadeFactor *= 0.75f
 	}
 
-	// picked[0] is the most prevalent; centre it with a band sized by its share of the top three,
-	// capped so the dominant colour never fills more than ~half the gradient.
+	// Centre the most prevalent colour, band sized by its share but capped to ~30% of the gradient.
 	val total = picked.sumOf { weight[it] }.coerceAtLeast(1e-6)
-	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.10, 0.25).toFloat()
+	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.06, 0.15).toFloat()
 
 	val dominant = colors[0]
 	val left = colors[1]
