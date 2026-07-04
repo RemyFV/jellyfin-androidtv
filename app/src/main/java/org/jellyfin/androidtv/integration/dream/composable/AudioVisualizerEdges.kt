@@ -42,9 +42,13 @@ fun AudioVisualizer(
 	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
+	val beatState = remember { mutableStateOf(0f) }
+	val phaseState = remember { mutableStateOf(0f) }
 
 	LaunchedEffect(Unit) {
 		val current = FloatArray(AudioSpectrum.BAND_COUNT)
+		var beat = 0f
+		var phase = 0f
 		while (true) {
 			withFrameNanos { }
 			val target = AudioSpectrum.bands.value
@@ -53,10 +57,23 @@ fun AudioVisualizer(
 				current[i] = if (t > current[i]) t else current[i] * 0.82f + t * 0.18f
 			}
 			display.value = current.copyOf()
+
+			// Beat level from the low bands (fast attack, slow release) drives a brightness pulse.
+			val lo = minOf(8, current.size)
+			var sum = 0f
+			for (i in 0 until lo) sum += current[i]
+			val level = if (lo > 0) sum / lo else 0f
+			beat = if (level > beat) level else beat * 0.90f + level * 0.10f
+			beatState.value = beat.coerceIn(0f, 1f)
+
+			phase += 0.12f
+			phaseState.value = phase
 		}
 	}
 
 	val bars = display.value
+	val beat = beatState.value
+	val phase = phaseState.value
 
 	Canvas(modifier = modifier.fillMaxSize()) {
 		val n = bars.size
@@ -89,6 +106,18 @@ fun AudioVisualizer(
 			return sampleStops(frac)
 		}
 
+		// Brightness pulse: a per-bar phase-shifted shimmer plus a global beat boost, so bars pulse
+		// with the music but slightly out of sync with each other.
+		fun barPulse(slot: Int): Float =
+			(0.5f + 0.12f * sin(phase + slot * 0.55f) + 0.4f * beat).coerceIn(0.35f, 1f)
+
+		fun Color.dim(f: Float): Color = Color(
+			(red * f).coerceIn(0f, 1f),
+			(green * f).coerceIn(0f, 1f),
+			(blue * f).coerceIn(0f, 1f),
+			alpha,
+		)
+
 		if (radial) {
 			// Two mirrored near-vertical arcs on the cover's sides. Values tuned in the layout tool:
 			// a slightly-bowed baseline pushed apart by xGap, bars pointing half-radial/half-outward,
@@ -118,7 +147,7 @@ fun AudioVisualizer(
 				val nx = bx / dist
 				val ny = by / dist
 				val desired = v * maxLen
-				val c = barColor(i)
+				val c = barColor(i).dim(barPulse(i))
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -183,7 +212,7 @@ fun AudioVisualizer(
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
 				val yc = y + barHeight / 2f
-				val c = barColor(i)
+				val c = barColor(i).dim(barPulse(i))
 
 				// Bar colour most of the way, fading to the contrast colour at the tip (inner end).
 				drawRoundRect(
