@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -148,7 +147,6 @@ fun AudioVisualizer(
 				val ny = by / dist
 				val desired = v * maxLen
 				val c = barColor(i).dim(barPulse(i))
-				val tip = tipShade(c, lightenTips)
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -165,11 +163,7 @@ fun AudioVisualizer(
 					val start = Offset(baseX, baseY)
 					val end = Offset(baseX + dx * len, baseY + dy * len)
 
-					// Bar colour most of the way, fading to the contrast colour at the tip.
-					drawLine(
-						Brush.linearGradient(0f to c, 0.75f to c, 1f to tip, start = start, end = end),
-						start, end, thickness, StrokeCap.Round,
-					)
+					drawLine(c, start, end, thickness, StrokeCap.Round)
 				}
 			}
 			// Oscilloscope waveform traced along each oval, jittering in/out with the raw audio.
@@ -214,19 +208,10 @@ fun AudioVisualizer(
 				if (v <= 0.01f) continue
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
-				val yc = y + barHeight / 2f
 				val c = barColor(i).dim(barPulse(i))
-				val tip = tipShade(c, lightenTips)
 
-				// Bar colour most of the way, fading to the contrast colour at the tip (inner end).
-				drawRoundRect(
-					Brush.linearGradient(0f to c, 0.75f to c, 1f to tip, start = Offset(0f, yc), end = Offset(len, yc)),
-					Offset(0f, y), Size(len, barHeight), radius,
-				)
-				drawRoundRect(
-					Brush.linearGradient(0f to c, 0.75f to c, 1f to tip, start = Offset(size.width, yc), end = Offset(size.width - len, yc)),
-					Offset(size.width - len, y), Size(len, barHeight), radius,
-				)
+				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
+				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
 			}
 		}
 	}
