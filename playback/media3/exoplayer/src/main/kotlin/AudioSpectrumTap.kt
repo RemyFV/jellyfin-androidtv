@@ -32,11 +32,17 @@ import kotlin.math.sin
  */
 object AudioSpectrum {
 	const val BAND_COUNT = 48
+	const val WAVE_POINTS = 128
 
 	private val _bands = MutableStateFlow(FloatArray(BAND_COUNT))
 
 	/** Per-band magnitudes in 0..1, low to high frequency. */
 	val bands: StateFlow<FloatArray> = _bands.asStateFlow()
+
+	private val _waveform = MutableStateFlow(FloatArray(WAVE_POINTS))
+
+	/** Downsampled time-domain waveform, roughly -1..1 (for an oscilloscope-style line). */
+	val waveform: StateFlow<FloatArray> = _waveform.asStateFlow()
 
 	// Reference count rather than a boolean: during a track change the screensaver briefly keeps both
 	// the outgoing and incoming composables alive, so a boolean would be turned off by the departing
@@ -60,8 +66,13 @@ object AudioSpectrum {
 		_bands.value = values
 	}
 
+	internal fun publishWaveform(values: FloatArray) {
+		_waveform.value = values
+	}
+
 	fun reset() {
 		_bands.value = FloatArray(BAND_COUNT)
+		_waveform.value = FloatArray(WAVE_POINTS)
 	}
 }
 
@@ -159,6 +170,13 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 	}
 
 	private fun process() {
+		// Downsampled raw waveform for the oscilloscope line (before windowing).
+		val wavePoints = AudioSpectrum.WAVE_POINTS
+		val waveform = FloatArray(wavePoints)
+		val step = FFT_SIZE / wavePoints
+		for (i in 0 until wavePoints) waveform[i] = ring[i * step].coerceIn(-1f, 1f)
+		AudioSpectrum.publishWaveform(waveform)
+
 		for (i in 0 until FFT_SIZE) {
 			re[i] = ring[i] * window[i]
 			im[i] = 0f
