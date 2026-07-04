@@ -87,18 +87,23 @@ fun AudioVisualizer(
 		}
 
 		if (radial) {
-			// A flat oval whose left/right extremes sit on the square cover's side edges; bars
-			// radiate outward from it into the wings.
-			val cx = size.width / 2f
-			val cy = size.height / 2f
-			val coverHalf = size.height * 0.5f
-			// Tall (vertical) oval: horizontal axis at the cover's side edges, taller vertically so
-			// the arcs hug the edges. Arc span kept narrow enough to stay on-screen.
-			val a = coverHalf * 1.02f
-			val b = coverHalf * 1.5f
-			val maxLen = size.height * 0.195f
-			val thickness = (size.height / (n * 1.7f)).coerceAtLeast(2f)
-			val halfArc = (38.0 * Math.PI / 180.0).toFloat()
+			// Two mirrored near-vertical arcs on the cover's sides. Values tuned in the layout tool:
+			// a slightly-bowed baseline pushed apart by xGap, bars pointing half-radial/half-outward,
+			// each length-clamped so its tip can't leave the frame, fading in from the base.
+			val w = size.width
+			val h = size.height
+			val cx = w / 2f
+			val cy = h / 2f
+			val coverHalf = h * 0.5f
+			val a = coverHalf * 0.80f
+			val b = coverHalf * 1.48f
+			val maxLen = h * 0.52f
+			val xGap = h * 0.10f
+			val margin = h * 0.035f
+			val dirHorizontal = 0.5f
+			val reach = 0.90f
+			val thickness = (h / (n * 2.34f)).coerceAtLeast(2f)
+			val halfArc = (37.0 * Math.PI / 180.0).toFloat()
 
 			for (i in 0 until n) {
 				val v = bars[bandFor(i)]
@@ -110,25 +115,28 @@ fun AudioVisualizer(
 				val dist = hypot(bx, by).coerceAtLeast(1f)
 				val nx = bx / dist
 				val ny = by / dist
-				val len = v * maxLen
+				val desired = v * maxLen
 				val c = barColor(i, v)
-				// Fade in from the oval (transparent) so the bases don't form a visible static ring.
-				// Vary the opaque point per bar so it doesn't read as a uniform outline.
-				val reach = 0.4f + 0.35f * (((i * 37) % 100) / 100f)
 
-				val rStart = Offset(cx + bx, cy + by)
-				val rEnd = Offset(cx + bx + nx * len, cy + by + ny * len)
-				drawLine(
-					Brush.linearGradient(0f to c.copy(alpha = 0f), reach to c, 1f to c, start = rStart, end = rEnd),
-					rStart, rEnd, thickness, StrokeCap.Round,
-				)
+				for (side in intArrayOf(1, -1)) {
+					val baseX = cx + side * (bx + xGap)
+					val baseY = cy + by
+					var dx = side * nx * (1f - dirHorizontal) + side * dirHorizontal
+					var dy = ny * (1f - dirHorizontal)
+					val dl = hypot(dx, dy).coerceAtLeast(1e-4f)
+					dx /= dl
+					dy /= dl
 
-				val lStart = Offset(cx - bx, cy + by)
-				val lEnd = Offset(cx - bx - nx * len, cy + by + ny * len)
-				drawLine(
-					Brush.linearGradient(0f to c.copy(alpha = 0f), reach to c, 1f to c, start = lStart, end = lEnd),
-					lStart, lEnd, thickness, StrokeCap.Round,
-				)
+					val len = minOf(desired, maxLengthInFrame(baseX, baseY, dx, dy, w, h, margin))
+					if (len <= 0f) continue
+
+					val start = Offset(baseX, baseY)
+					val end = Offset(baseX + dx * len, baseY + dy * len)
+					drawLine(
+						Brush.linearGradient(0f to c.copy(alpha = 0f), reach to c, 1f to c, start = start, end = end),
+						start, end, thickness, StrokeCap.Round,
+					)
+				}
 			}
 		} else {
 			// Straight bars hugging each edge. Top inset keeps them clear of the top-right clock.
@@ -151,4 +159,14 @@ fun AudioVisualizer(
 			}
 		}
 	}
+}
+
+/** Max length from (px,py) along unit (dx,dy) keeping the tip [margin] px inside the w x h frame. */
+private fun maxLengthInFrame(px: Float, py: Float, dx: Float, dy: Float, w: Float, h: Float, margin: Float): Float {
+	var t = Float.MAX_VALUE
+	if (dx > 1e-4f) t = minOf(t, (w - margin - px) / dx)
+	else if (dx < -1e-4f) t = minOf(t, (margin - px) / dx)
+	if (dy > 1e-4f) t = minOf(t, (h - margin - py) / dy)
+	else if (dy < -1e-4f) t = minOf(t, (margin - py) / dy)
+	return t.coerceAtLeast(0f)
 }
