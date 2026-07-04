@@ -90,11 +90,18 @@ private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 	if (picked.isEmpty()) return WhiteStops
 
 	val colors = picked.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }.toMutableList()
-	while (colors.size < PALETTE_SIZE) colors.add(hueShift(colors.last(), 40f))
+	// If the cover has fewer distinct hues, pad with darker shades of the dominant colour rather than
+	// inventing new hues (a mostly-brown cover should stay brown, not gain blue/green).
+	var shadeFactor = 0.62f
+	while (colors.size < PALETTE_SIZE) {
+		colors.add(shade(colors[0], shadeFactor))
+		shadeFactor *= 0.75f
+	}
 
-	// picked[0] is the most prevalent; centre it with a band sized by its share of the top three.
+	// picked[0] is the most prevalent; centre it with a band sized by its share of the top three,
+	// capped so the dominant colour never fills more than ~half the gradient.
 	val total = picked.sumOf { weight[it] }.coerceAtLeast(1e-6)
-	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.12, 0.38).toFloat()
+	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.10, 0.25).toFloat()
 
 	val dominant = colors[0]
 	val left = colors[1]
@@ -115,7 +122,7 @@ private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
-private fun hueShift(color: Color, degrees: Float): Color {
+private fun shade(color: Color, valueFactor: Float): Color {
 	val hsv = FloatArray(3)
 	android.graphics.Color.RGBToHSV(
 		(color.red * 255).toInt(),
@@ -123,6 +130,7 @@ private fun hueShift(color: Color, degrees: Float): Color {
 		(color.blue * 255).toInt(),
 		hsv,
 	)
-	hsv[0] = (hsv[0] + degrees) % 360f
+	// Same hue, darker (toward black) - keeps a monochrome cover monochrome.
+	hsv[2] = (hsv[2] * valueFactor).coerceIn(0.2f, 1f)
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }
