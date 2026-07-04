@@ -38,7 +38,7 @@ fun AudioVisualizer(
 	radial: Boolean = false,
 	centerOut: Boolean = false,
 	colorStops: List<Pair<Float, Color>> = listOf(0f to Color.White),
-	tipColor: Color = Color.White,
+	lightenTips: Boolean = true,
 	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
@@ -148,6 +148,7 @@ fun AudioVisualizer(
 				val ny = by / dist
 				val desired = v * maxLen
 				val c = barColor(i).dim(barPulse(i))
+				val tip = tipShade(c, lightenTips)
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -166,16 +167,18 @@ fun AudioVisualizer(
 
 					// Bar colour most of the way, fading to the contrast colour at the tip.
 					drawLine(
-						Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = start, end = end),
+						Brush.linearGradient(0f to c, 0.75f to c, 1f to tip, start = start, end = end),
 						start, end, thickness, StrokeCap.Round,
 					)
 				}
 			}
 			// Oscilloscope waveform traced along each oval, jittering in/out with the raw audio.
 			val wave = AudioSpectrum.waveform.value
-			if (wave.size >= 2) {
+			if (wave.size >= 2 && (wave.maxOfOrNull { abs(it) } ?: 0f) > 0.015f) {
 				val waveAmp = h * 0.05f
 				val waveWidth = (thickness * 0.5f).coerceAtLeast(1.5f)
+					val waveColor = tipShade(sampleStops(0.5f), lightenTips)
+					val waveAlpha = ((wave.maxOfOrNull { abs(it) } ?: 0f) * 5f).coerceIn(0f, 0.85f)
 				for (side in intArrayOf(1, -1)) {
 					val path = Path()
 					for (k in wave.indices) {
@@ -194,7 +197,7 @@ fun AudioVisualizer(
 						val py = cy + by2 + dy2 * off
 						if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
 					}
-					drawPath(path, tipColor.copy(alpha = 0.85f), style = Stroke(width = waveWidth))
+					drawPath(path, waveColor.copy(alpha = waveAlpha), style = Stroke(width = waveWidth))
 				}
 			}
 		} else {
@@ -213,19 +216,33 @@ fun AudioVisualizer(
 				val y = inset + i * slot + (slot - barHeight) / 2f
 				val yc = y + barHeight / 2f
 				val c = barColor(i).dim(barPulse(i))
+				val tip = tipShade(c, lightenTips)
 
 				// Bar colour most of the way, fading to the contrast colour at the tip (inner end).
 				drawRoundRect(
-					Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = Offset(0f, yc), end = Offset(len, yc)),
+					Brush.linearGradient(0f to c, 0.75f to c, 1f to tip, start = Offset(0f, yc), end = Offset(len, yc)),
 					Offset(0f, y), Size(len, barHeight), radius,
 				)
 				drawRoundRect(
-					Brush.linearGradient(0f to c, 0.75f to c, 1f to tipColor, start = Offset(size.width, yc), end = Offset(size.width - len, yc)),
+					Brush.linearGradient(0f to c, 0.75f to c, 1f to tip, start = Offset(size.width, yc), end = Offset(size.width - len, yc)),
 					Offset(size.width - len, y), Size(len, barHeight), radius,
 				)
 			}
 		}
 	}
+}
+
+/** A lighter or darker shade of [color] (keeping its hue) for the bar tips / soundwave. */
+private fun tipShade(color: Color, lighten: Boolean): Color {
+	val hsv = FloatArray(3)
+	android.graphics.Color.RGBToHSV((color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt(), hsv)
+	if (lighten) {
+		hsv[1] = hsv[1] * 0.6f
+		hsv[2] = (hsv[2] * 1.4f + 0.4f).coerceAtMost(1f)
+	} else {
+		hsv[2] = hsv[2] * 0.35f
+	}
+	return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
 /** Max length from (px,py) along unit (dx,dy) keeping the tip [margin] px inside the w x h frame. */
