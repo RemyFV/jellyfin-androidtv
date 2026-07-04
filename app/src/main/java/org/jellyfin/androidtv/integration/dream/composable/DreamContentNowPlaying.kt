@@ -100,7 +100,7 @@ fun DreamContentNowPlaying(
 		?: content.item.parentBackdropImages.firstOrNull()
 		?: primaryImage
 
-	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer, visualizerCoverColor)
+	val visualizerColorStops = rememberVisualizerColorStops(primaryImage?.getUrl(api), visualizerCoverColor)
 
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
@@ -135,8 +135,7 @@ fun DreamContentNowPlaying(
 			modifier = Modifier.fillMaxSize(),
 			radial = visualizerRadial,
 			centerOut = visualizerCenterOut,
-			colorStops = visualizerPalette.stops,
-			glow = visualizerPalette.glow,
+			colorStops = visualizerColorStops,
 			topInset = !centeredLayout,
 		)
 	}

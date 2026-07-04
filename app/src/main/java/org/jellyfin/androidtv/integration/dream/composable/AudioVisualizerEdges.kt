@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
@@ -36,7 +35,6 @@ fun AudioVisualizer(
 	radial: Boolean = false,
 	centerOut: Boolean = false,
 	colorStops: List<Pair<Float, Color>> = listOf(0f to Color.White),
-	glow: Color = Color.White,
 	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
@@ -60,11 +58,11 @@ fun AudioVisualizer(
 		val n = bars.size
 		if (n == 0) return@Canvas
 
-		// Cheap fake glow: two wider, semi-transparent solid strokes over a bar segment (no blur,
+		// Cheap glow: two wider, semi-transparent solid strokes in the bar's own colour (no blur,
 		// so it's GPU-cheap on a TV). start..end should be the outer half of the bar.
-		fun drawGlow(start: Offset, end: Offset, width: Float, v: Float) {
-			drawLine(glow.copy(alpha = (0.16f * v).coerceAtMost(0.30f)), start, end, width * 3.0f, StrokeCap.Round)
-			drawLine(glow.copy(alpha = (0.22f * v).coerceAtMost(0.40f)), start, end, width * 1.8f, StrokeCap.Round)
+		fun drawGlow(start: Offset, end: Offset, width: Float, color: Color) {
+			drawLine(color.copy(alpha = 0.15f), start, end, width * 3.0f, StrokeCap.Round)
+			drawLine(color.copy(alpha = 0.30f), start, end, width * 1.8f, StrokeCap.Round)
 		}
 
 		fun bandFor(slot: Int): Int = if (centerOut) {
@@ -89,9 +87,9 @@ fun AudioVisualizer(
 			return colorStops.last().second
 		}
 
-		fun barColor(slot: Int, v: Float): Color {
+		fun barColor(slot: Int): Color {
 			val frac = if (n == 1) 0f else slot.toFloat() / (n - 1)
-			return sampleStops(frac).copy(alpha = 0.5f + 0.5f * v)
+			return sampleStops(frac)
 		}
 
 		if (radial) {
@@ -109,7 +107,6 @@ fun AudioVisualizer(
 			val xGap = h * 0.10f
 			val margin = h * 0.035f
 			val dirHorizontal = 0.5f
-			val reach = 0.90f
 			val thickness = (h / (n * 2.34f)).coerceAtLeast(2f)
 			val halfArc = (37.0 * Math.PI / 180.0).toFloat()
 
@@ -124,7 +121,7 @@ fun AudioVisualizer(
 				val nx = bx / dist
 				val ny = by / dist
 				val desired = v * maxLen
-				val c = barColor(i, v)
+				val c = barColor(i)
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -142,12 +139,9 @@ fun AudioVisualizer(
 					val end = Offset(baseX + dx * len, baseY + dy * len)
 
 					// Glow on the outer half of the bar.
-					drawGlow(Offset(baseX + dx * len * 0.5f, baseY + dy * len * 0.5f), end, thickness, v)
+					drawGlow(Offset(baseX + dx * len * 0.5f, baseY + dy * len * 0.5f), end, thickness, c)
 
-					drawLine(
-						Brush.linearGradient(0f to c.copy(alpha = 0f), reach to c, 1f to c, start = start, end = end),
-						start, end, thickness, StrokeCap.Round,
-					)
+					drawLine(c, start, end, thickness, StrokeCap.Round)
 				}
 			}
 		} else {
@@ -165,11 +159,11 @@ fun AudioVisualizer(
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
 				val yc = y + barHeight / 2f
-				val c = barColor(i, v)
+				val c = barColor(i)
 
 				// Glow on the outer half of each bar.
-				drawGlow(Offset(len * 0.5f, yc), Offset(len, yc), barHeight, v)
-				drawGlow(Offset(size.width - len * 0.5f, yc), Offset(size.width - len, yc), barHeight, v)
+				drawGlow(Offset(len * 0.5f, yc), Offset(len, yc), barHeight, c)
+				drawGlow(Offset(size.width - len * 0.5f, yc), Offset(size.width - len, yc), barHeight, c)
 
 				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
 				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
