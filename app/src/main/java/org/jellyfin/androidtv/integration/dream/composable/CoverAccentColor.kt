@@ -153,7 +153,7 @@ private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double
 	val hsv = FloatArray(3)
 	android.graphics.Color.RGBToHSV((rSum / weight).toInt(), (gSum / weight).toInt(), (bSum / weight).toInt(), hsv)
 	// Vivid, bright accents so the bars pop against the muted blurred backdrop.
-	hsv[1] = (hsv[1] * 1.6f).coerceAtMost(1f)
+	hsv[1] = (hsv[1] * 2.0f).coerceIn(0.5f, 1f)
 	hsv[2] = hsv[2].coerceIn(0.82f, 1f)
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }
