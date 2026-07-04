@@ -1,7 +1,10 @@
 package org.jellyfin.playback.core.queue.order
 
-import kotlin.math.min
-
+/**
+ * Provides a shuffled play order that covers the whole queue exactly once. It keeps a list of planned
+ * upcoming indices so preloading (peek) is stable, refilling from the not-yet-played indices as they
+ * are consumed.
+ */
 internal class ShuffleOrderIndexProvider : OrderIndexProvider {
 	private val nextIndices = mutableListOf<Int>()
 
@@ -13,24 +16,25 @@ internal class ShuffleOrderIndexProvider : OrderIndexProvider {
 		playedIndices: Collection<Int>,
 		currentIndex: Int,
 	): Collection<Int> {
-		val remainingItemsSize = size - playedIndices.size
-		return if (remainingItemsSize <= 0) {
-			emptyList()
-		} else {
-			val remainingIndices = (0..size).filterNot {
-				it in playedIndices || it in nextIndices
-			}
+		// Drop planned indices that are no longer valid (out of range, already played, or now playing).
+		nextIndices.retainAll { it in 0 until size && it != currentIndex && it !in playedIndices }
 
-			List(min(amount, remainingItemsSize)) { i ->
-				if (i < nextIndices.lastIndex) {
-					nextIndices[i]
-				} else {
-					val index = remainingIndices.random()
-					nextIndices.add(index)
-					index
-				}
+		if (nextIndices.size < amount) {
+			val taken = HashSet(playedIndices).apply {
+				add(currentIndex)
+				addAll(nextIndices)
+			}
+			val available = (0 until size).filterTo(mutableListOf()) { it !in taken }
+			available.shuffle()
+
+			var i = 0
+			while (nextIndices.size < amount && i < available.size) {
+				nextIndices.add(available[i])
+				i++
 			}
 		}
+
+		return nextIndices.take(amount)
 	}
 
 	override fun notifyRemoved(index: Int) {
@@ -39,6 +43,6 @@ internal class ShuffleOrderIndexProvider : OrderIndexProvider {
 	}
 
 	override fun useNextIndex() {
-		nextIndices.removeAt(0)
+		if (nextIndices.isNotEmpty()) nextIndices.removeAt(0)
 	}
 }
