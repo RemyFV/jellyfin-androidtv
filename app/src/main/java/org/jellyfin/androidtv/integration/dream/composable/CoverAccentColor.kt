@@ -98,17 +98,21 @@ private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 		shadeFactor *= 0.75f
 	}
 
-	// Centre the most prevalent colour, band sized by its share but capped to ~30% of the gradient.
+	// Small centred band for the dominant colour; the two flanks get solid plateaus of their own so
+	// the dominant doesn't bleed across the whole arc.
 	val total = picked.sumOf { weight[it] }.coerceAtLeast(1e-6)
-	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.06, 0.15).toFloat()
+	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.05, 0.10).toFloat()
+	val flank = 0.28f
 
 	val dominant = colors[0]
 	val left = colors[1]
 	val right = colors[2]
 	return listOf(
 		0f to left,
+		flank to left,
 		(0.5f - centerHalf) to dominant,
 		(0.5f + centerHalf) to dominant,
+		(1f - flank) to right,
 		1f to right,
 	)
 }
@@ -116,8 +120,9 @@ private fun extractStops(source: Bitmap): List<Pair<Float, Color>> {
 private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double): Color {
 	val hsv = FloatArray(3)
 	android.graphics.Color.RGBToHSV((rSum / weight).toInt(), (gSum / weight).toInt(), (bSum / weight).toInt(), hsv)
-	hsv[1] = (hsv[1] * 1.35f).coerceAtMost(1f)
-	hsv[2] = hsv[2].coerceIn(0.65f, 0.95f)
+	// Vivid, bright accents so the bars pop against the muted blurred backdrop.
+	hsv[1] = (hsv[1] * 1.6f).coerceIn(0.5f, 1f)
+	hsv[2] = hsv[2].coerceIn(0.82f, 1f)
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
