@@ -1,7 +1,5 @@
 package org.jellyfin.androidtv.integration.dream.composable
 
-import android.graphics.BlurMaskFilter
-import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -17,8 +15,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
 import kotlin.math.abs
 import kotlin.math.cos
@@ -64,13 +60,11 @@ fun AudioVisualizer(
 		val n = bars.size
 		if (n == 0) return@Canvas
 
-		// Reused native paint for the blurred glow on each bar's outer half.
-		val native = drawContext.canvas.nativeCanvas
-		val glowPaint = Paint().apply {
-			isAntiAlias = true
-			style = Paint.Style.STROKE
-			strokeCap = Paint.Cap.ROUND
-			maskFilter = BlurMaskFilter((size.height * 0.010f).coerceAtLeast(4f), BlurMaskFilter.Blur.NORMAL)
+		// Cheap fake glow: two wider, semi-transparent solid strokes over a bar segment (no blur,
+		// so it's GPU-cheap on a TV). start..end should be the outer half of the bar.
+		fun drawGlow(start: Offset, end: Offset, width: Float, v: Float) {
+			drawLine(glow.copy(alpha = (0.16f * v).coerceAtMost(0.30f)), start, end, width * 3.0f, StrokeCap.Round)
+			drawLine(glow.copy(alpha = (0.22f * v).coerceAtMost(0.40f)), start, end, width * 1.8f, StrokeCap.Round)
 		}
 
 		fun bandFor(slot: Int): Int = if (centerOut) {
@@ -118,7 +112,6 @@ fun AudioVisualizer(
 			val reach = 0.90f
 			val thickness = (h / (n * 2.34f)).coerceAtLeast(2f)
 			val halfArc = (37.0 * Math.PI / 180.0).toFloat()
-			glowPaint.strokeWidth = thickness
 
 			for (i in 0 until n) {
 				val v = bars[bandFor(i)]
@@ -149,8 +142,7 @@ fun AudioVisualizer(
 					val end = Offset(baseX + dx * len, baseY + dy * len)
 
 					// Glow on the outer half of the bar.
-					glowPaint.color = glow.copy(alpha = (0.6f * v).coerceAtMost(0.7f)).toArgb()
-					native.drawLine(baseX + dx * len * 0.5f, baseY + dy * len * 0.5f, end.x, end.y, glowPaint)
+					drawGlow(Offset(baseX + dx * len * 0.5f, baseY + dy * len * 0.5f), end, thickness, v)
 
 					drawLine(
 						Brush.linearGradient(0f to c.copy(alpha = 0f), reach to c, 1f to c, start = start, end = end),
@@ -166,7 +158,6 @@ fun AudioVisualizer(
 			val barHeight = slot * 0.55f
 			val maxLen = size.width * 0.16f
 			val radius = CornerRadius(barHeight / 2f, barHeight / 2f)
-			glowPaint.strokeWidth = barHeight
 
 			for (i in 0 until n) {
 				val v = bars[bandFor(i)]
@@ -177,9 +168,8 @@ fun AudioVisualizer(
 				val c = barColor(i, v)
 
 				// Glow on the outer half of each bar.
-				glowPaint.color = glow.copy(alpha = (0.6f * v).coerceAtMost(0.7f)).toArgb()
-				native.drawLine(len * 0.5f, yc, len, yc, glowPaint)
-				native.drawLine(size.width - len * 0.5f, yc, size.width - len, yc, glowPaint)
+				drawGlow(Offset(len * 0.5f, yc), Offset(len, yc), barHeight, v)
+				drawGlow(Offset(size.width - len * 0.5f, yc), Offset(size.width - len, yc), barHeight, v)
 
 				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
 				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
