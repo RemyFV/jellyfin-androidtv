@@ -25,14 +25,15 @@ private const val PALETTE_SIZE = 3
 
 /**
  * Visualizer colouring from the cover: gradient [stops] (position 0..1 to colour) for the bars, and
- * a [contrast] colour (white on dark covers, black on light) for the bar tips.
+ * [lightenTips] - whether bar tips should be a lighter shade (dark cover) or darker shade (light
+ * cover) of their own colour.
  */
 data class VisualizerPalette(
 	val stops: List<Pair<Float, Color>>,
-	val contrast: Color,
+	val lightenTips: Boolean,
 )
 
-private val DefaultPalette = VisualizerPalette(WhiteStops, Color.White)
+private val DefaultPalette = VisualizerPalette(WhiteStops, true)
 
 /**
  * Loads the cover at [url] and derives the visualizer palette. When [useCoverColor] is off the bars
@@ -93,12 +94,12 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 		bSum[bucket] += b * w
 	}
 
-	// Tips contrast with the cover: white on dark covers, black on light ones.
+	// Tips shade toward the contrasting end: lighten on dark covers, darken on light ones.
 	val avgLuma = (lumaSum / pixels.size) / 255.0
-	val contrast = if (avgLuma > 0.5) Color.Black else Color.White
+	val lightenTips = avgLuma <= 0.5
 
 	val stops = if (useCoverColor) buildStops(weight, rSum, gSum, bSum) else WhiteStops
-	return VisualizerPalette(stops, contrast)
+	return VisualizerPalette(stops, lightenTips)
 }
 
 private fun buildStops(
@@ -111,6 +112,9 @@ private fun buildStops(
 	val picked = mutableListOf<Int>()
 	for (bucket in weight.indices.sortedByDescending { weight[it] }) {
 		if (weight[bucket] <= 0.0) break
+		// Only a reasonably prevalent hue counts as a distinct colour, so faint off-hue noise on a
+		// near-monochrome cover doesn't become an invented colour (buckets are sorted by weight).
+		if (picked.isNotEmpty() && weight[bucket] < weight[picked[0]] * 0.18) break
 		if (picked.all { min(abs(it - bucket), BUCKETS - abs(it - bucket)) >= 2 }) picked.add(bucket)
 		if (picked.size == PALETTE_SIZE) break
 	}
@@ -149,7 +153,7 @@ private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double
 	val hsv = FloatArray(3)
 	android.graphics.Color.RGBToHSV((rSum / weight).toInt(), (gSum / weight).toInt(), (bSum / weight).toInt(), hsv)
 	// Vivid, bright accents so the bars pop against the muted blurred backdrop.
-	hsv[1] = (hsv[1] * 1.6f).coerceIn(0.5f, 1f)
+	hsv[1] = (hsv[1] * 1.6f).coerceAtMost(1f)
 	hsv[2] = hsv[2].coerceIn(0.82f, 1f)
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }

@@ -136,7 +136,7 @@ fun DreamContentNowPlaying(
 			radial = visualizerRadial,
 			centerOut = visualizerCenterOut,
 			colorStops = visualizerPalette.stops,
-			tipColor = visualizerPalette.contrast,
+			lightenTips = visualizerPalette.lightenTips,
 			topInset = !centeredLayout,
 		)
 	}
