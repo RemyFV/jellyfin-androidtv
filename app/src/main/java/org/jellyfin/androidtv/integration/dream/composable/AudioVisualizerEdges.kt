@@ -11,8 +11,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -171,8 +173,15 @@ fun AudioVisualizer(
 			if (wave.size >= 2 && (wave.maxOfOrNull { abs(it) } ?: 0f) > 0.015f) {
 				val waveAmp = h * 0.05f
 				val waveWidth = (thickness * 0.5f).coerceAtLeast(1.5f)
-					val waveColor = tipShade(sampleStops(0.5f), lightenTips)
-					val waveAlpha = ((wave.maxOfOrNull { abs(it) } ?: 0f) * 5f).coerceIn(0f, 0.85f)
+				val waveAlpha = ((wave.maxOfOrNull { abs(it) } ?: 0f) * 5f).coerceIn(0f, 0.85f)
+				// Same gradient as the bars, running top-to-bottom along the arc, shaded lighter so the
+				// line stays legible over the bars underneath.
+				val waveBrush = if (colorStops.size == 1) SolidColor(tipShade(colorStops[0].second, lightenTips))
+				else Brush.linearGradient(
+					*colorStops.map { (pos, c) -> pos to tipShade(c, lightenTips) }.toTypedArray(),
+					start = Offset(cx, cy - b * sin(halfArc)),
+					end = Offset(cx, cy + b * sin(halfArc)),
+				)
 				for (side in intArrayOf(1, -1)) {
 					val path = Path()
 					for (k in wave.indices) {
@@ -191,7 +200,7 @@ fun AudioVisualizer(
 						val py = cy + by2 + dy2 * off
 						if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
 					}
-					drawPath(path, waveColor.copy(alpha = waveAlpha), style = Stroke(width = waveWidth))
+					drawPath(path, waveBrush, alpha = waveAlpha, style = Stroke(width = waveWidth))
 				}
 			}
 		} else {
