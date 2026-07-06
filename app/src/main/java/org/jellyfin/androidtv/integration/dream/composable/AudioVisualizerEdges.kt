@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
@@ -172,7 +173,7 @@ fun AudioVisualizer(
 			val wave = AudioSpectrum.waveform.value
 			if (wave.size >= 2 && (wave.maxOfOrNull { abs(it) } ?: 0f) > 0.015f) {
 				val waveAmp = h * 0.05f
-				val waveWidth = (thickness * 0.5f).coerceAtLeast(1.5f)
+				val waveWidth = thickness.coerceAtLeast(3f)
 				val waveAlpha = ((wave.maxOfOrNull { abs(it) } ?: 0f) * 5f).coerceIn(0f, 0.85f)
 				// Same gradient as the bars, running top-to-bottom along the arc, shaded lighter so the
 				// line stays legible over the bars underneath.
@@ -182,8 +183,17 @@ fun AudioVisualizer(
 					start = Offset(cx, cy - b * sin(halfArc)),
 					end = Offset(cx, cy + b * sin(halfArc)),
 				)
+				// Low-pass the raw samples (moving average) so the line flows in rounded curves.
+				val smooth = FloatArray(wave.size) { k ->
+					var s = 0f
+					var cnt = 0
+					for (j in (k - 2)..(k + 2)) if (j in wave.indices) { s += wave[j]; cnt++ }
+					s / cnt
+				}
 				for (side in intArrayOf(1, -1)) {
 					val path = Path()
+					var prevX = 0f
+					var prevY = 0f
 					for (k in wave.indices) {
 						val ft = k.toFloat() / (wave.size - 1)
 						val tt = -halfArc + ft * (2f * halfArc)
@@ -195,12 +205,21 @@ fun AudioVisualizer(
 						val dl2 = hypot(dx2, dy2).coerceAtLeast(1e-4f)
 						dx2 /= dl2
 						dy2 /= dl2
-						val off = wave[k] * waveAmp
+						val off = smooth[k] * waveAmp
 						val px = cx + side * (bx2 + xGap) + dx2 * off
 						val py = cy + by2 + dy2 * off
-						if (k == 0) path.moveTo(px, py) else path.lineTo(px, py)
+						// Quadratic through midpoints: each raw point is a control point, the on-curve
+						// anchors sit between them, rounding the spikes into smooth curves.
+						if (k == 0) path.moveTo(px, py)
+						else path.quadraticTo(prevX, prevY, (prevX + px) / 2f, (prevY + py) / 2f)
+						prevX = px
+						prevY = py
 					}
-					drawPath(path, waveBrush, alpha = waveAlpha, style = Stroke(width = waveWidth))
+					path.lineTo(prevX, prevY)
+					drawPath(
+						path, waveBrush, alpha = waveAlpha,
+						style = Stroke(width = waveWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
+					)
 				}
 			}
 		} else {
