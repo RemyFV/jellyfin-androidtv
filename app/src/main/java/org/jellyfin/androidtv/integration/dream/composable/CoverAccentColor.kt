@@ -25,8 +25,8 @@ private const val PALETTE_SIZE = 3
 
 /**
  * Visualizer colouring from the cover: gradient [stops] (position 0..1 to colour) for the bars, and
- * [lightenTips] - whether bar tips should be a lighter shade (dark cover) or darker shade (light
- * cover) of their own colour.
+ * [lightenTips] - whether the contrast (waveform) uses a lighter shade of its colour. Always true now
+ * (darkening doesn't read on light backdrops); kept as a field so the drawing code stays generic.
  */
 data class VisualizerPalette(
 	val stops: List<Pair<Float, Color>>,
@@ -75,17 +75,18 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 	val gSum = DoubleArray(BUCKETS)
 	val bSum = DoubleArray(BUCKETS)
 	val hsv = FloatArray(3)
-	var lumaSum = 0.0
+	var satSum = 0.0
 
 	for (p in pixels) {
 		val r = (p shr 16) and 0xFF
 		val g = (p shr 8) and 0xFF
 		val b = p and 0xFF
-		lumaSum += 0.299 * r + 0.587 * g + 0.114 * b
 
 		android.graphics.Color.RGBToHSV(r, g, b, hsv)
-		// Favour saturated, mid-bright pixels so accents are vivid, not muddy.
-		val w = (hsv[1] * hsv[1]) * (1f - abs(hsv[2] - 0.6f))
+		satSum += hsv[1]
+		// Favour saturated, mid-bright pixels so accents are vivid, not muddy. Linear (not squared)
+		// saturation so a large muted region still outweighs a few stray saturated noise pixels.
+		val w = hsv[1] * (1f - abs(hsv[2] - 0.6f))
 		if (w <= 0f) continue
 		val bucket = ((hsv[0] / 360f) * BUCKETS).toInt().coerceIn(0, BUCKETS - 1)
 		weight[bucket] += w
@@ -94,12 +95,13 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 		bSum[bucket] += b * w
 	}
 
-	// Tips shade toward the contrasting end: lighten on dark covers, darken on light ones.
-	val avgLuma = (lumaSum / pixels.size) / 255.0
-	val lightenTips = avgLuma <= 0.5
+	// A near-monochrome cover (low average saturation) has no real accent hue - anything we'd pull out
+	// is JPEG/noise. Use white bars rather than inventing a colour (e.g. blue on a beige/black cover).
+	val monochrome = (satSum / pixels.size) < 0.18
 
-	val stops = if (useCoverColor) buildStops(weight, rSum, gSum, bSum) else WhiteStops
-	return VisualizerPalette(stops, lightenTips)
+	// Always shade the contrast (waveform) lighter: darkening doesn't read on light backdrops.
+	val stops = if (useCoverColor && !monochrome) buildStops(weight, rSum, gSum, bSum) else WhiteStops
+	return VisualizerPalette(stops, true)
 }
 
 private fun buildStops(
@@ -122,13 +124,9 @@ private fun buildStops(
 	if (picked.isEmpty()) return WhiteStops
 
 	val colors = picked.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }.toMutableList()
-	// Pad with darker shades of the dominant colour rather than inventing new hues (a mostly-brown
-	// cover should stay brown, not gain blue/green).
-	var shadeFactor = 0.62f
-	while (colors.size < PALETTE_SIZE) {
-		colors.add(shade(colors[0], shadeFactor))
-		shadeFactor *= 0.75f
-	}
+	// Pad by repeating the last real colour (not darker shades), so the flank/outer high-pitch bars
+	// stay as bright as the centre bass bars, and a mostly-monochrome cover stays that one colour.
+	while (colors.size < PALETTE_SIZE) colors.add(colors.last())
 
 	// Small centred band for the dominant colour; the two flanks get solid plateaus of their own so
 	// the dominant doesn't bleed across the whole arc.
@@ -155,18 +153,5 @@ private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double
 	// Vivid, bright accents so the bars pop against the muted blurred backdrop.
 	hsv[1] = (hsv[1] * 2.0f).coerceIn(0.5f, 1f)
 	hsv[2] = hsv[2].coerceIn(0.82f, 1f)
-	return Color(android.graphics.Color.HSVToColor(hsv))
-}
-
-private fun shade(color: Color, valueFactor: Float): Color {
-	val hsv = FloatArray(3)
-	android.graphics.Color.RGBToHSV(
-		(color.red * 255).toInt(),
-		(color.green * 255).toInt(),
-		(color.blue * 255).toInt(),
-		hsv,
-	)
-	// Same hue, darker (toward black) - keeps a monochrome cover monochrome.
-	hsv[2] = (hsv[2] * valueFactor).coerceIn(0.2f, 1f)
 	return Color(android.graphics.Color.HSVToColor(hsv))
 }

@@ -108,7 +108,7 @@ fun AudioVisualizer(
 		// Brightness pulse: a per-bar phase-shifted shimmer plus a global beat boost, so bars pulse
 		// with the music but slightly out of sync with each other.
 		fun barPulse(slot: Int): Float =
-			(0.5f + 0.12f * sin(phase + slot * 0.55f) + 0.4f * beat).coerceIn(0.35f, 1f)
+			(0.6f + 0.12f * sin(phase + slot * 0.55f) + 0.4f * beat).coerceIn(0.55f, 1f)
 
 		fun Color.dim(f: Float): Color = Color(
 			(red * f).coerceIn(0f, 1f),
