@@ -16,12 +16,21 @@ import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
-import kotlin.math.abs
-import kotlin.math.min
 
 private val WhiteStops = listOf(0f to Color.White)
 private const val BUCKETS = 12
 private const val PALETTE_SIZE = 3
+
+// A pixel counts as "coloured" (gets a hue) only above this chroma (= S*V = delta/255). Below it the
+// pixel is a neutral (white/black/grey) and never contributes a hue - this keeps JPEG/noise chroma
+// (e.g. a slightly blue-tinted black) out of the accent colour.
+private const val CHROMA_MIN = 0.15f
+// A hue must cover at least this fraction of the cover to count as a real colour, not a stray speck.
+private const val MIN_COLOR_AREA = 0.02
+// If one colour (a hue, or white/black/grey) covers more than this share of the image the cover is
+// "monochrome": the bars use the next colour instead, so they contrast with the dominant backdrop
+// rather than blending into it (and never go invisible-white on white / invisible on black).
+private const val DOMINANT_FRACTION = 0.80
 
 /**
  * Visualizer colouring from the cover: gradient [stops] (position 0..1 to colour) for the bars, and
@@ -36,9 +45,8 @@ data class VisualizerPalette(
 private val DefaultPalette = VisualizerPalette(WhiteStops, true)
 
 /**
- * Loads the cover at [url] and derives the visualizer palette. When [useCoverColor] is off the bars
- * stay white but the tip contrast colour is still computed from the cover's brightness. Returns the
- * default (white bars, white tips) when disabled or unavailable.
+ * Loads the cover at [url] and derives the visualizer palette. Returns the default (white bars) when
+ * disabled, unavailable, or [useCoverColor] is off.
  */
 @Composable
 fun rememberVisualizerPalette(url: String?, enabled: Boolean, useCoverColor: Boolean): VisualizerPalette {
@@ -65,92 +73,100 @@ fun rememberVisualizerPalette(url: String?, enabled: Boolean, useCoverColor: Boo
 }
 
 private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPalette {
+	if (!useCoverColor) return DefaultPalette
+
 	val size = 48
 	val scaled = Bitmap.createScaledBitmap(source, size, size, true)
 	val pixels = IntArray(size * size)
 	scaled.getPixels(pixels, 0, size, 0, 0, size, size)
+	val total = pixels.size
 
-	val weight = DoubleArray(BUCKETS)
+	// Per hue bucket: area (pixel count) and chroma-weighted colour sums, for the coloured pixels.
+	val area = IntArray(BUCKETS)
+	val wSum = DoubleArray(BUCKETS)
 	val rSum = DoubleArray(BUCKETS)
 	val gSum = DoubleArray(BUCKETS)
 	val bSum = DoubleArray(BUCKETS)
+	// Neutral areas (pixels below CHROMA_MIN), split by brightness, plus overall luma for the fallback.
+	var whiteArea = 0
+	var blackArea = 0
+	var greyArea = 0
+	var lumaSum = 0.0
 	val hsv = FloatArray(3)
-	var chromaSum = 0.0
 
 	for (p in pixels) {
 		val r = (p shr 16) and 0xFF
 		val g = (p shr 8) and 0xFF
 		val b = p and 0xFF
+		val luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+		lumaSum += luma
 
 		android.graphics.Color.RGBToHSV(r, g, b, hsv)
-		// Weight by perceptual chroma (S*V, i.e. delta/255): near-black and near-white pixels count for
-		// little, so a tinted-black region can't hijack the accent hue and dark covers aren't read as
-		// colourful. HSV saturation alone (delta/max) overstates dark/warm covers. Also the gate metric.
-		val w = hsv[1] * hsv[2]
-		chromaSum += w
-		if (w <= 0f) continue
-		val bucket = ((hsv[0] / 360f) * BUCKETS).toInt().coerceIn(0, BUCKETS - 1)
-		weight[bucket] += w
-		rSum[bucket] += r * w
-		gSum[bucket] += g * w
-		bSum[bucket] += b * w
+		val chroma = hsv[1] * hsv[2]
+		if (chroma >= CHROMA_MIN) {
+			val bucket = ((hsv[0] / 360f) * BUCKETS).toInt().coerceIn(0, BUCKETS - 1)
+			area[bucket]++
+			wSum[bucket] += chroma
+			rSum[bucket] += r * chroma
+			gSum[bucket] += g * chroma
+			bSum[bucket] += b * chroma
+		} else when {
+			luma > 0.75 -> whiteArea++
+			luma < 0.20 -> blackArea++
+			else -> greyArea++
+		}
 	}
 
-	// A near-monochrome cover (low average chroma) has no real accent hue - anything we'd pull out is
-	// JPEG/noise. Use white bars rather than inventing a colour (e.g. blue on a beige/black cover).
-	val monochrome = (chromaSum / pixels.size) < 0.10
+	// The single most common colour of any kind (a hue, or white/black/grey) and whether it dominates.
+	val topHue = area.indices.maxByOrNull { area[it] } ?: 0
+	val maxArea = maxOf(area[topHue], whiteArea, blackArea, greyArea)
+	val dominatedByOne = maxArea.toDouble() / total > DOMINANT_FRACTION
+	val dominantIsHue = area[topHue] == maxArea && area[topHue] > 0
 
-	// Always shade the contrast (waveform) lighter: darkening doesn't read on light backdrops.
-	val stops = if (useCoverColor && !monochrome) buildStops(weight, rSum, gSum, bSum) else WhiteStops
-	return VisualizerPalette(stops, true)
-}
+	// Rank the real chromatic colours by area (largest first), dropping specks and - when one colour
+	// owns the whole image - the dominant hue itself, so the bars contrast rather than blend.
+	val ranked = area.indices
+		.filter { area[it].toDouble() / total >= MIN_COLOR_AREA }
+		.filterNot { dominatedByOne && dominantIsHue && it == topHue }
+		.sortedByDescending { area[it] }
 
-private fun buildStops(
-	weight: DoubleArray,
-	rSum: DoubleArray,
-	gSum: DoubleArray,
-	bSum: DoubleArray,
-): List<Pair<Float, Color>> {
-	// Rank hue buckets by prevalence, keeping them apart so the gradient has variety.
-	val picked = mutableListOf<Int>()
-	for (bucket in weight.indices.sortedByDescending { weight[it] }) {
-		if (weight[bucket] <= 0.0) break
-		// Only a reasonably prevalent hue counts as a distinct colour, so faint off-hue noise on a
-		// near-monochrome cover doesn't become an invented colour (buckets are sorted by weight).
-		if (picked.isNotEmpty() && weight[bucket] < weight[picked[0]] * 0.18) break
-		if (picked.all { min(abs(it - bucket), BUCKETS - abs(it - bucket)) >= 2 }) picked.add(bucket)
-		if (picked.size == PALETTE_SIZE) break
+	if (ranked.isEmpty()) {
+		// No real colour to use (grayscale / near-monochrome, or a single hue that filled the frame).
+		// Pick a neutral that contrasts with the overall brightness so the bars stay visible on the
+		// (same-coloured) backdrop: dark bars on a light cover, white bars otherwise.
+		val bar = if (lumaSum / total > 0.6) Color(0.15f, 0.15f, 0.15f) else Color.White
+		return VisualizerPalette(listOf(0f to bar), true)
 	}
 
-	if (picked.isEmpty()) return WhiteStops
-
-	val colors = picked.map { bucketColor(rSum[it], gSum[it], bSum[it], weight[it]) }.toMutableList()
-	// Pad by repeating the last real colour (not darker shades), so the flank/outer high-pitch bars
-	// stay as bright as the centre bass bars, and a mostly-monochrome cover stays that one colour.
+	val colors = ranked.take(PALETTE_SIZE)
+		.map { bucketColor(rSum[it], gSum[it], bSum[it], wSum[it]) }
+		.toMutableList()
+	// Pad by repeating the last real colour so flank/outer bars stay as bright as the centre bars.
 	while (colors.size < PALETTE_SIZE) colors.add(colors.last())
 
-	// Small centred band for the dominant colour; the two flanks get solid plateaus of their own so
-	// the dominant doesn't bleed across the whole arc.
-	val total = picked.sumOf { weight[it] }.coerceAtLeast(1e-6)
-	val centerHalf = (0.5 * weight[picked[0]] / total).coerceIn(0.05, 0.10).toFloat()
-	val flank = 0.28f
+	return VisualizerPalette(buildStops(colors), true)
+}
 
-	val dominant = colors[0]
+// Small centred band for the main colour with solid flanks, so the main doesn't bleed across the arc.
+private fun buildStops(colors: List<Color>): List<Pair<Float, Color>> {
+	val main = colors[0]
 	val left = colors[1]
 	val right = colors[2]
+	val centerHalf = 0.08f
+	val flank = 0.28f
 	return listOf(
 		0f to left,
 		flank to left,
-		(0.5f - centerHalf) to dominant,
-		(0.5f + centerHalf) to dominant,
+		(0.5f - centerHalf) to main,
+		(0.5f + centerHalf) to main,
 		(1f - flank) to right,
 		1f to right,
 	)
 }
 
-private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, weight: Double): Color {
+private fun bucketColor(rSum: Double, gSum: Double, bSum: Double, wSum: Double): Color {
 	val hsv = FloatArray(3)
-	android.graphics.Color.RGBToHSV((rSum / weight).toInt(), (gSum / weight).toInt(), (bSum / weight).toInt(), hsv)
+	android.graphics.Color.RGBToHSV((rSum / wSum).toInt(), (gSum / wSum).toInt(), (bSum / wSum).toInt(), hsv)
 	// Vivid, bright accents so the bars pop against the muted blurred backdrop.
 	hsv[1] = (hsv[1] * 2.0f).coerceIn(0.5f, 1f)
 	hsv[2] = hsv[2].coerceIn(0.82f, 1f)
