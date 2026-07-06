@@ -101,7 +101,12 @@ class AudioTapRenderersFactory(context: Context) : DefaultRenderersFactory(conte
 @UnstableApi
 private class SpectrumAudioProcessor : BaseAudioProcessor() {
 	private companion object {
-		const val FFT_SIZE = 1024
+		// A large window so the closely-spaced low (bass) log-bands resolve into distinct FFT bins - at
+		// 1024 the bins were ~43 Hz wide and the lowest ~7 bands all aliased onto the same bin, so the
+		// centre bass bars were always identical. Overlap (run the FFT every HOP samples) keeps the
+		// update rate and time resolution the same despite the longer window.
+		const val FFT_SIZE = 4096
+		const val HOP = 1024
 		const val MIN_FREQ = 40f
 		const val MAX_FREQ = 16000f
 		const val DB_FLOOR = -60f
@@ -114,8 +119,10 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 	private val window = FloatArray(FFT_SIZE) { i ->
 		0.5f * (1f - cos(2.0 * Math.PI * i / (FFT_SIZE - 1)).toFloat())
 	}
+	// Circular buffer of the most recent FFT_SIZE samples; process() reads it oldest-to-newest.
 	private val ring = FloatArray(FFT_SIZE)
-	private var filled = 0
+	private var writePos = 0
+	private var sinceHop = 0
 	private val re = FloatArray(FFT_SIZE)
 	private val im = FloatArray(FFT_SIZE)
 
@@ -123,7 +130,8 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 		sampleRate = inputAudioFormat.sampleRate
 		channelCount = inputAudioFormat.channelCount.coerceAtLeast(1)
 		encoding = inputAudioFormat.encoding
-		filled = 0
+		writePos = 0
+		sinceHop = 0
 		// Passthrough: output format == input format (keeps this processor active as a tap).
 		return inputAudioFormat
 	}
@@ -162,23 +170,24 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 	}
 
 	private fun push(sample: Float) {
-		ring[filled++] = sample
-		if (filled >= FFT_SIZE) {
+		ring[writePos] = sample
+		writePos = (writePos + 1) % FFT_SIZE
+		if (++sinceHop >= HOP) {
+			sinceHop = 0
 			process()
-			filled = 0
 		}
 	}
 
 	private fun process() {
-		// Downsampled raw waveform for the oscilloscope line (before windowing).
+		// Downsampled raw waveform for the oscilloscope line (before windowing), read oldest-to-newest.
 		val wavePoints = AudioSpectrum.WAVE_POINTS
 		val waveform = FloatArray(wavePoints)
 		val step = FFT_SIZE / wavePoints
-		for (i in 0 until wavePoints) waveform[i] = ring[i * step].coerceIn(-1f, 1f)
+		for (i in 0 until wavePoints) waveform[i] = ring[(writePos + i * step) % FFT_SIZE].coerceIn(-1f, 1f)
 		AudioSpectrum.publishWaveform(waveform)
 
 		for (i in 0 until FFT_SIZE) {
-			re[i] = ring[i] * window[i]
+			re[i] = ring[(writePos + i) % FFT_SIZE] * window[i]
 			im[i] = 0f
 		}
 		fft(re, im)
