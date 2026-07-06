@@ -75,7 +75,7 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 	val gSum = DoubleArray(BUCKETS)
 	val bSum = DoubleArray(BUCKETS)
 	val hsv = FloatArray(3)
-	var satSum = 0.0
+	var chromaSum = 0.0
 
 	for (p in pixels) {
 		val r = (p shr 16) and 0xFF
@@ -83,10 +83,11 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 		val b = p and 0xFF
 
 		android.graphics.Color.RGBToHSV(r, g, b, hsv)
-		satSum += hsv[1]
-		// Favour saturated, mid-bright pixels so accents are vivid, not muddy. Linear (not squared)
-		// saturation so a large muted region still outweighs a few stray saturated noise pixels.
-		val w = hsv[1] * (1f - abs(hsv[2] - 0.6f))
+		// Weight by perceptual chroma (S*V, i.e. delta/255): near-black and near-white pixels count for
+		// little, so a tinted-black region can't hijack the accent hue and dark covers aren't read as
+		// colourful. HSV saturation alone (delta/max) overstates dark/warm covers. Also the gate metric.
+		val w = hsv[1] * hsv[2]
+		chromaSum += w
 		if (w <= 0f) continue
 		val bucket = ((hsv[0] / 360f) * BUCKETS).toInt().coerceIn(0, BUCKETS - 1)
 		weight[bucket] += w
@@ -95,9 +96,9 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 		bSum[bucket] += b * w
 	}
 
-	// A near-monochrome cover (low average saturation) has no real accent hue - anything we'd pull out
-	// is JPEG/noise. Use white bars rather than inventing a colour (e.g. blue on a beige/black cover).
-	val monochrome = (satSum / pixels.size) < 0.18
+	// A near-monochrome cover (low average chroma) has no real accent hue - anything we'd pull out is
+	// JPEG/noise. Use white bars rather than inventing a colour (e.g. blue on a beige/black cover).
+	val monochrome = (chromaSum / pixels.size) < 0.10
 
 	// Always shade the contrast (waveform) lighter: darkening doesn't read on light backdrops.
 	val stops = if (useCoverColor && !monochrome) buildStops(weight, rSum, gSum, bSum) else WhiteStops
