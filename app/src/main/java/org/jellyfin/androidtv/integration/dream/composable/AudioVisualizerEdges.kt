@@ -60,11 +60,7 @@ fun AudioVisualizer(
 			display.value = current.copyOf()
 
 			// Beat level from the low bands (fast attack, slow release) drives a brightness pulse.
-			val lo = minOf(8, current.size)
-			var sum = 0f
-			for (i in 0 until lo) sum += current[i]
-			val level = if (lo > 0) sum / lo else 0f
-			beat = if (level > beat) level else beat * 0.90f + level * 0.10f
+			beat = beatFollow(beat, bassLevel(current))
 			beatState.value = beat.coerceIn(0f, 1f)
 
 			phase += 0.12f

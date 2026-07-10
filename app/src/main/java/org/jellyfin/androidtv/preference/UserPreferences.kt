@@ -251,6 +251,11 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverVisualizerCoverColor = booleanPreference("screensaver_visualizer_covercolor", false)
 
 		/**
+		 * Pulse the now-playing backdrop with the bass: a subtle zoom and expanding rings on each beat.
+		 */
+		var screensaverBackdropRipple = booleanPreference("screensaver_backdrop_ripple", false)
+
+		/**
 		 * Center the clock and track info over the cover in the now-playing screensaver so the
 		 * visualizer surrounds them.
 		 */
