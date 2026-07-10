@@ -40,7 +40,6 @@ fun AudioVisualizer(
 	radial: Boolean = false,
 	centerOut: Boolean = false,
 	colorStops: List<Pair<Float, Color>> = listOf(0f to Color.White),
-	lightenTips: Boolean = true,
 	topInset: Boolean = true,
 ) {
 	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
@@ -175,11 +174,11 @@ fun AudioVisualizer(
 				val waveAmp = h * 0.05f
 				val waveWidth = thickness.coerceAtLeast(3f)
 				val waveAlpha = ((wave.maxOfOrNull { abs(it) } ?: 0f) * 5f).coerceIn(0f, 0.85f)
-				// Same gradient as the bars, running top-to-bottom along the arc, shaded lighter so the
-				// line stays legible over the bars underneath.
-				val waveBrush = if (colorStops.size == 1) SolidColor(tipShade(colorStops[0].second, lightenTips))
+				// Exactly the bars' gradient - no brightness offset. The waveform's motion is what
+				// sets it apart from the bars underneath.
+				val waveBrush = if (colorStops.size == 1) SolidColor(colorStops[0].second)
 				else Brush.linearGradient(
-					*colorStops.map { (pos, c) -> pos to tipShade(c, lightenTips) }.toTypedArray(),
+					*colorStops.toTypedArray(),
 					start = Offset(cx, cy - b * sin(halfArc)),
 					end = Offset(cx, cy + b * sin(halfArc)),
 				)
@@ -243,19 +242,6 @@ fun AudioVisualizer(
 			}
 		}
 	}
-}
-
-/** A lighter or darker shade of [color] (keeping its hue) for the bar tips / soundwave. */
-private fun tipShade(color: Color, lighten: Boolean): Color {
-	val hsv = FloatArray(3)
-	android.graphics.Color.RGBToHSV((color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt(), hsv)
-	if (lighten) {
-		hsv[1] = hsv[1] * 0.6f
-		hsv[2] = (hsv[2] * 1.4f + 0.4f).coerceAtMost(1f)
-	} else {
-		hsv[2] = hsv[2] * 0.35f
-	}
-	return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
 /** Max length from (px,py) along unit (dx,dy) keeping the tip [margin] px inside the w x h frame. */
