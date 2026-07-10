@@ -33,16 +33,14 @@ private const val MIN_COLOR_AREA = 0.02
 private const val DOMINANT_FRACTION = 0.80
 
 /**
- * Visualizer colouring from the cover: gradient [stops] (position 0..1 to colour) for the bars, and
- * [lightenTips] - whether the contrast (waveform) uses a lighter shade of its colour. Always true now
- * (darkening doesn't read on light backdrops); kept as a field so the drawing code stays generic.
+ * Visualizer colouring from the cover: gradient [stops] (position 0..1 to colour) for the bars. The
+ * waveform reuses the same stops, so no separate contrast colour is needed.
  */
 data class VisualizerPalette(
 	val stops: List<Pair<Float, Color>>,
-	val lightenTips: Boolean,
 )
 
-private val DefaultPalette = VisualizerPalette(WhiteStops, true)
+private val DefaultPalette = VisualizerPalette(WhiteStops)
 
 /**
  * Loads the cover at [url] and derives the visualizer palette. Returns the default (white bars) when
@@ -135,7 +133,7 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 		// Pick a neutral that contrasts with the overall brightness so the bars stay visible on the
 		// (same-coloured) backdrop: dark bars on a light cover, white bars otherwise.
 		val bar = if (lumaSum / total > 0.6) Color(0.15f, 0.15f, 0.15f) else Color.White
-		return VisualizerPalette(listOf(0f to bar), true)
+		return VisualizerPalette(listOf(0f to bar))
 	}
 
 	val colors = ranked.take(PALETTE_SIZE)
@@ -144,7 +142,7 @@ private fun extractPalette(source: Bitmap, useCoverColor: Boolean): VisualizerPa
 	// Pad by repeating the last real colour so flank/outer bars stay as bright as the centre bars.
 	while (colors.size < PALETTE_SIZE) colors.add(colors.last())
 
-	return VisualizerPalette(buildStops(colors), true)
+	return VisualizerPalette(buildStops(colors))
 }
 
 // Small centred band for the main colour with solid flanks, so the main doesn't bleed across the arc.
