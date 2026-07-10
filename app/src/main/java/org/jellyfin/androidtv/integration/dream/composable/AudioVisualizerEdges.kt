@@ -112,6 +112,13 @@ fun AudioVisualizer(
 		// Lift [this] toward white by [f] (0 = unchanged, 1 = white).
 		fun Color.brighten(f: Float): Color = lerp(this, Color.White, f.coerceIn(0f, 1f))
 
+		// Shimmer profile along a bar (base -> tip): the base colour for the first 40%, then ramping to
+		// the brightened colour at the tip, so the glow reads as a gradient concentrated at the tip.
+		fun barShimmerStops(slot: Int): Array<Pair<Float, Color>> {
+			val base = barColor(slot)
+			return arrayOf(0f to base, 0.4f to base, 1f to base.brighten(barPulse(slot)))
+		}
+
 		if (radial) {
 			// Two mirrored near-vertical arcs on the cover's sides. Values tuned in the layout tool:
 			// a slightly-bowed baseline pushed apart by xGap, bars pointing half-radial/half-outward,
@@ -141,7 +148,7 @@ fun AudioVisualizer(
 				val nx = bx / dist
 				val ny = by / dist
 				val desired = v * maxLen
-				val c = barColor(i).brighten(barPulse(i))
+				val stops = barShimmerStops(i)
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -152,13 +159,21 @@ fun AudioVisualizer(
 					dx /= dl
 					dy /= dl
 
-					val len = minOf(desired, maxLengthInFrame(baseX, baseY, dx, dy, w, h, margin))
+					val frameLimit = maxLengthInFrame(baseX, baseY, dx, dy, w, h, margin)
+					val len = minOf(desired, frameLimit)
 					if (len <= 0f) continue
 
 					val start = Offset(baseX, baseY)
 					val end = Offset(baseX + dx * len, baseY + dy * len)
+					// Anchor the shimmer gradient to the bar's MAX reach (design max, capped by the frame),
+					// not its current length, so the tip glow only appears as the bar nears full length.
+					val maxReach = minOf(maxLen, frameLimit)
+					val gradientEnd = Offset(baseX + dx * maxReach, baseY + dy * maxReach)
 
-					drawLine(c, start, end, thickness, StrokeCap.Round)
+					drawLine(
+						Brush.linearGradient(*stops, start = start, end = gradientEnd),
+						start, end, thickness, StrokeCap.Round,
+					)
 				}
 			}
 			// Oscilloscope waveform traced along each oval, jittering in/out with the raw audio.
@@ -228,10 +243,20 @@ fun AudioVisualizer(
 				if (v <= 0.01f) continue
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
-				val c = barColor(i).brighten(barPulse(i))
+				val stops = barShimmerStops(i)
 
-				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
-				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
+				// The gradient spans the bar's MAX length (maxLen), not its current length, so a short bar
+				// shows only the base-colour end and the tip glow appears as it grows toward full length.
+				// Left bar: base at the left screen edge (x=0), glowing tip pointing inward.
+				drawRoundRect(
+					Brush.horizontalGradient(*stops, startX = 0f, endX = maxLen),
+					Offset(0f, y), Size(len, barHeight), radius,
+				)
+				// Right bar: base at the right screen edge, tip pointing inward.
+				drawRoundRect(
+					Brush.horizontalGradient(*stops, startX = size.width, endX = size.width - maxLen),
+					Offset(size.width - len, y), Size(len, barHeight), radius,
+				)
 			}
 		}
 	}
