@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -77,6 +78,7 @@ fun DreamContentNowPlaying(
 	val hideNowPlayingCover = userPreferences[UserPreferences.screensaverHideNowPlayingCover]
 	val showLyrics = userPreferences[UserPreferences.screensaverShowLyrics]
 	val showVisualizer = userPreferences[UserPreferences.screensaverAudioVisualizer]
+	val showRipple = userPreferences[UserPreferences.screensaverBackdropRipple]
 	val visualizerRadial = userPreferences[UserPreferences.screensaverVisualizerRadial]
 	val visualizerCenterOut = userPreferences[UserPreferences.screensaverVisualizerCenterOut]
 	val visualizerCoverColor = userPreferences[UserPreferences.screensaverVisualizerCoverColor]
@@ -100,7 +102,12 @@ fun DreamContentNowPlaying(
 		?: content.item.parentBackdropImages.firstOrNull()
 		?: primaryImage
 
-	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer, visualizerCoverColor)
+	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer || showRipple, visualizerCoverColor)
+
+	// Bass-driven backdrop pulse (zoom + rings). The rings reuse the visualizer's main accent colour so
+	// the effect stays cohesive with the bars; the middle stop is the cover's dominant colour (or white).
+	val backdropPulse = rememberBackdropPulse(showRipple)
+	val rippleColor = visualizerPalette.stops[visualizerPalette.stops.size / 2].second
 
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
@@ -113,12 +120,35 @@ fun DreamContentNowPlaying(
 		}.joinToString(", ")
 	}
 
-	// Background
+	// The visualizer and the ripple both read the live spectrum, so keep the tap alive if either is on.
+	if (showVisualizer || showRipple) {
+		DisposableEffect(Unit) {
+			AudioSpectrum.acquire()
+			onDispose { AudioSpectrum.release() }
+		}
+	}
+
+	// Background. graphicsLayer scale reads backdropPulse.scale in the draw phase (1f when ripple is
+	// off), so the artwork zooms very slightly on the bass without triggering recomposition.
 	if (backgroundImage != null) {
 		AsyncImage(
 			url = backgroundImage.getUrl(api),
 			blurHash = backgroundImage.blurHash,
 			scaleType = ImageView.ScaleType.CENTER_CROP,
+			modifier = Modifier
+				.fillMaxSize()
+				.graphicsLayer {
+					scaleX = backdropPulse.scale
+					scaleY = backdropPulse.scale
+				},
+		)
+	}
+
+	// Expanding bass rings over the backdrop, under the text/visualizer.
+	if (showRipple) {
+		BackdropRippleOverlay(
+			pulse = backdropPulse,
+			color = rippleColor,
 			modifier = Modifier.fillMaxSize(),
 		)
 	}
@@ -126,11 +156,6 @@ fun DreamContentNowPlaying(
 	// Audio visualizer (over the side fill). No top inset in the centered layout: the clock is
 	// centered, so the top corners are free.
 	if (showVisualizer) {
-		DisposableEffect(Unit) {
-			AudioSpectrum.acquire()
-			onDispose { AudioSpectrum.release() }
-		}
-
 		AudioVisualizer(
 			modifier = Modifier.fillMaxSize(),
 			radial = visualizerRadial,
