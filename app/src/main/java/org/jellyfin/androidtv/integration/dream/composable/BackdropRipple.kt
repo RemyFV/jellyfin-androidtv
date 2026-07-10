@@ -117,7 +117,6 @@ fun BackdropRippleOverlay(
 		val rings = pulse.rings
 		if (rings.isEmpty()) return@Canvas
 
-		val center = size.center
 		val maxRadius = size.maxDimension * 0.6f
 		val strokeWidth = size.minDimension * 0.006f
 
@@ -127,10 +126,10 @@ fun BackdropRippleOverlay(
 			val fade = (1f - progress) * (progress * 4f).coerceAtMost(1f)
 			val alpha = RING_PEAK_ALPHA * r.strength * fade
 			if (alpha <= 0.001f) continue
+			// center defaults to the DrawScope centre (middle of the canvas).
 			drawCircle(
 				color = color,
 				radius = maxRadius * progress,
-				center = center,
 				alpha = alpha,
 				style = Stroke(width = strokeWidth),
 			)
