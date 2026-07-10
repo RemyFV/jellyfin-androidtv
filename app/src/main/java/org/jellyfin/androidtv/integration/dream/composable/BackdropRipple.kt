@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
@@ -39,8 +40,8 @@ internal data class RippleRing(val age: Float, val strength: Float)
 
 // Tuning - deliberately subtle so it reads as a gentle pulse, not a strobe.
 private const val ZOOM_AMOUNT = 0.02f       // max extra scale on a strong beat (2%)
-private const val RING_LIFETIME = 1.4f      // seconds for a ring to cross the screen and fade out
-private const val RING_PEAK_ALPHA = 0.14f   // opacity of a fresh ring at full-strength bass
+private const val RING_LIFETIME = 0.95f     // seconds a ring is tracked as it expands
+private const val RING_PEAK_ALPHA = 0.32f   // opacity of a fresh ring at full-strength bass
 private const val ONSET_SENSITIVITY = 1.35f // bass must exceed this * running average to spawn a ring
 private const val ONSET_FLOOR = 0.12f       // and be at least this loud, so quiet passages stay still
 private const val MIN_RING_INTERVAL = 0.18f // seconds between rings, so fast bass doesn't flood
@@ -118,21 +119,35 @@ fun BackdropRippleOverlay(
 		if (rings.isEmpty()) return@Canvas
 
 		val maxRadius = size.maxDimension * 0.6f
-		val strokeWidth = size.minDimension * 0.006f
+		val minDim = size.minDimension
 
 		for (r in rings) {
 			val progress = (r.age / RING_LIFETIME).coerceIn(0f, 1f)
-			// Fade in briefly then out, so a ring doesn't pop in at full opacity.
-			val fade = (1f - progress) * (progress * 4f).coerceAtMost(1f)
-			val alpha = RING_PEAK_ALPHA * r.strength * fade
+			// Quick fade-in, then fade out fast so the ring vanishes early in its expansion (by ~60%)
+			// rather than crossing the whole screen.
+			val fadeIn = (progress / 0.10f).coerceAtMost(1f)
+			val fadeOut = (1f - progress / 0.60f).coerceIn(0f, 1f)
+			val alpha = (RING_PEAK_ALPHA * r.strength * fadeIn * fadeOut).coerceIn(0f, 1f)
 			if (alpha <= 0.001f) continue
-			// center defaults to the DrawScope centre (middle of the canvas).
-			drawCircle(
-				color = color,
-				radius = maxRadius * progress,
-				alpha = alpha,
-				style = Stroke(width = strokeWidth),
+
+			val radius = maxRadius * progress
+			if (radius <= 1f) continue
+
+			// Leading ring line, thicker on a stronger bass hit (like a bar's length tracks its band).
+			val thickness = minDim * (0.003f + 0.018f * r.strength)
+			// Inner glow trailing behind the ring: the same colour fades to transparent a short way
+			// inside the edge, so the expanding ring drags a soft fading tail.
+			val glowInner = ((radius - minDim * 0.05f) / radius).coerceIn(0f, 1f)
+			val glow = Brush.radialGradient(
+				0f to Color.Transparent,
+				glowInner to Color.Transparent,
+				1f to color,
+				center = center,
+				radius = radius,
 			)
+
+			drawCircle(brush = glow, radius = radius, alpha = alpha)
+			drawCircle(color = color, radius = radius, alpha = alpha, style = Stroke(width = thickness))
 		}
 	}
 }
