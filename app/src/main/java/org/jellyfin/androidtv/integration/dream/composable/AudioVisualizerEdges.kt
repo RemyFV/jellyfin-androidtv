@@ -103,17 +103,14 @@ fun AudioVisualizer(
 			return sampleStops(frac)
 		}
 
-		// Brightness pulse: a per-bar phase-shifted shimmer plus a global beat boost, so bars pulse
-		// with the music but slightly out of sync with each other.
+		// Brightness pulse as an amount to lift the bar colour toward white (0 = base colour, 1 = white):
+		// a per-bar phase-shifted shimmer (always >= 0) plus a global beat boost, so bars brighten with
+		// the music and slightly out of sync with each other, never dropping below their base colour.
 		fun barPulse(slot: Int): Float =
-			(0.6f + 0.12f * sin(phase + slot * 0.55f) + 0.4f * beat).coerceIn(0.55f, 1f)
+			(0.12f * (0.5f + 0.5f * sin(phase + slot * 0.55f)) + 0.45f * beat).coerceIn(0f, 0.7f)
 
-		fun Color.dim(f: Float): Color = Color(
-			(red * f).coerceIn(0f, 1f),
-			(green * f).coerceIn(0f, 1f),
-			(blue * f).coerceIn(0f, 1f),
-			alpha,
-		)
+		// Lift [this] toward white by [f] (0 = unchanged, 1 = white).
+		fun Color.brighten(f: Float): Color = lerp(this, Color.White, f.coerceIn(0f, 1f))
 
 		if (radial) {
 			// Two mirrored near-vertical arcs on the cover's sides. Values tuned in the layout tool:
@@ -144,7 +141,7 @@ fun AudioVisualizer(
 				val nx = bx / dist
 				val ny = by / dist
 				val desired = v * maxLen
-				val c = barColor(i).dim(barPulse(i))
+				val c = barColor(i).brighten(barPulse(i))
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -231,7 +228,7 @@ fun AudioVisualizer(
 				if (v <= 0.01f) continue
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
-				val c = barColor(i).dim(barPulse(i))
+				val c = barColor(i).brighten(barPulse(i))
 
 				drawRoundRect(c, Offset(0f, y), Size(len, barHeight), radius)
 				drawRoundRect(c, Offset(size.width - len, y), Size(len, barHeight), radius)
