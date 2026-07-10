@@ -7,3 +7,6 @@ local.properties
 .kotlin/
 build/
 captures/
+
+# Private dev notes (not for upstream)
+BUILD_AND_INSTALL.md
