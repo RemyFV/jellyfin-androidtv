@@ -41,9 +41,9 @@ internal data class RippleRing(val age: Float, val strength: Float)
 // Tuning - deliberately subtle so it reads as a gentle pulse, not a strobe.
 private const val ZOOM_AMOUNT = 0.02f       // max extra scale on a strong beat (2%)
 private const val RING_LIFETIME = 0.95f     // seconds a ring is tracked as it expands
-private const val RING_PEAK_ALPHA = 0.32f   // opacity of a fresh ring at full-strength bass
-private const val ONSET_SENSITIVITY = 1.35f // bass must exceed this * running average to spawn a ring
-private const val ONSET_FLOOR = 0.12f       // and be at least this loud, so quiet passages stay still
+private const val RING_PEAK_ALPHA = 0.45f   // peak opacity a ring fades in to, then out from
+private const val BEAT_RISE = 0.06f         // min upward jump in the beat envelope to spawn a ring
+private const val ONSET_FLOOR = 0.12f       // beat must be at least this loud, so quiet passages stay still
 private const val MIN_RING_INTERVAL = 0.18f // seconds between rings, so fast bass doesn't flood
 
 /** Backdrop pulse state: a beat-driven [scale] for the artwork plus the live set of expanding rings. */
@@ -70,7 +70,7 @@ fun rememberBackdropPulse(enabled: Boolean): BackdropPulse {
 		}
 
 		var beat = 0f
-		var avg = 0f
+		var prevBeat = 0f
 		var sinceRing = MIN_RING_INTERVAL
 		var lastNanos = 0L
 		var rings = emptyList<RippleRing>()
@@ -82,7 +82,8 @@ fun rememberBackdropPulse(enabled: Boolean): BackdropPulse {
 
 			val bass = bassLevel(AudioSpectrum.bands.value)
 
-			// Zoom eases with the beat (fast attack, slow release).
+			// One envelope (fast attack, slow release) drives BOTH the zoom and the rings, so they pulse
+			// together off the same beat.
 			beat = beatFollow(beat, bass)
 			pulse.scale = 1f + beat * ZOOM_AMOUNT
 
@@ -92,13 +93,14 @@ fun rememberBackdropPulse(enabled: Boolean): BackdropPulse {
 				if (aged.age >= RING_LIFETIME) null else aged
 			}
 
-			// Onset detection: a ring on a bass hit that clearly exceeds the running average.
+			// Spawn a ring on the rising edge of that same beat envelope: the zoom kicking up is exactly
+			// what produces a ring. Rate-limited so one hit makes one ring; strength = the pulse height.
 			sinceRing += dt
-			if (bass > ONSET_FLOOR && bass > avg * ONSET_SENSITIVITY && sinceRing >= MIN_RING_INTERVAL) {
-				rings = rings + RippleRing(age = 0f, strength = bass.coerceIn(0f, 1f))
+			if (beat - prevBeat > BEAT_RISE && beat > ONSET_FLOOR && sinceRing >= MIN_RING_INTERVAL) {
+				rings = rings + RippleRing(age = 0f, strength = beat.coerceIn(0f, 1f))
 				sinceRing = 0f
 			}
-			avg = avg * 0.92f + bass * 0.08f
+			prevBeat = beat
 
 			pulse.rings = rings
 		}
@@ -123,11 +125,11 @@ fun BackdropRippleOverlay(
 
 		for (r in rings) {
 			val progress = (r.age / RING_LIFETIME).coerceIn(0f, 1f)
-			// Quick fade-in, then fade out fast so the ring vanishes early in its expansion (by ~60%)
-			// rather than crossing the whole screen.
-			val fadeIn = (progress / 0.10f).coerceAtMost(1f)
-			val fadeOut = (1f - progress / 0.60f).coerceIn(0f, 1f)
-			val alpha = (RING_PEAK_ALPHA * r.strength * fadeIn * fadeOut).coerceIn(0f, 1f)
+			// Opacity envelope: start fully transparent, fade in to the peak (by ~20% of the expansion),
+			// then fade out, so each ring blooms and dissolves in time with the backdrop beat.
+			val fade = if (progress < 0.2f) progress / 0.2f
+			else (1f - (progress - 0.2f) / 0.5f).coerceIn(0f, 1f)
+			val alpha = RING_PEAK_ALPHA * fade
 			if (alpha <= 0.001f) continue
 
 			val radius = maxRadius * progress
