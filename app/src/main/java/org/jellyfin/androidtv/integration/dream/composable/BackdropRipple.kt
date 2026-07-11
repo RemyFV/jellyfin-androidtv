@@ -11,7 +11,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -147,7 +146,7 @@ fun BackdropRippleOverlay(
 				endY = center.y + radius,
 			)
 
-			drawCircle(brush = ringBrush, radius = radius, alpha = alpha, style = Stroke(width = thickness), blendMode = BlendMode.Overlay)
+			drawCircle(brush = ringBrush, radius = radius, alpha = alpha, style = Stroke(width = thickness))
 		}
 	}
 }
