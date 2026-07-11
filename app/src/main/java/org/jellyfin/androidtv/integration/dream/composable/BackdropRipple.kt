@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import org.jellyfin.playback.media3.exoplayer.AudioSpectrum
 
@@ -110,11 +111,11 @@ fun rememberBackdropPulse(enabled: Boolean): BackdropPulse {
 	return pulse
 }
 
-/** Draws the expanding rings of [pulse] over the backdrop in [color]. */
+/** Draws the expanding rings of [pulse] over the backdrop, coloured with the visualizer [colorStops]. */
 @Composable
 fun BackdropRippleOverlay(
 	pulse: BackdropPulse,
-	color: Color,
+	colorStops: List<Pair<Float, Color>>,
 	modifier: Modifier = Modifier,
 ) {
 	Canvas(modifier = modifier.fillMaxSize()) {
@@ -123,6 +124,8 @@ fun BackdropRippleOverlay(
 
 		val maxRadius = size.maxDimension * 0.6f
 		val minDim = size.minDimension
+		// Ring line uses the full bars/soundwave gradient; the softer glow tail uses the dominant stop.
+		val glowColor = colorStops[colorStops.size / 2].second
 
 		for (r in rings) {
 			val progress = (r.age / RING_LIFETIME).coerceIn(0f, 1f)
@@ -144,13 +147,20 @@ fun BackdropRippleOverlay(
 			val glow = Brush.radialGradient(
 				0f to Color.Transparent,
 				glowInner to Color.Transparent,
-				1f to color,
+				1f to glowColor,
 				center = center,
 				radius = radius,
 			)
+			// The ring line carries the same left->right gradient as the bars, spanning its own width.
+			val ringBrush = if (colorStops.size == 1) SolidColor(colorStops[0].second)
+			else Brush.horizontalGradient(
+				*colorStops.toTypedArray(),
+				startX = center.x - radius,
+				endX = center.x + radius,
+			)
 
 			drawCircle(brush = glow, radius = radius, alpha = alpha, blendMode = BlendMode.Overlay)
-			drawCircle(color = color, radius = radius, alpha = alpha, style = Stroke(width = thickness), blendMode = BlendMode.Overlay)
+			drawCircle(brush = ringBrush, radius = radius, alpha = alpha, style = Stroke(width = thickness), blendMode = BlendMode.Overlay)
 		}
 	}
 }
