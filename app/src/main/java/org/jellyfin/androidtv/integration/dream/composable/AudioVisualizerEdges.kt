@@ -4,7 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -42,37 +43,41 @@ fun AudioVisualizer(
 	colorStops: List<Pair<Float, Color>> = listOf(0f to Color.White),
 	topInset: Boolean = true,
 ) {
-	val display = remember { mutableStateOf(FloatArray(AudioSpectrum.BAND_COUNT)) }
-	val beatState = remember { mutableStateOf(0f) }
-	val phaseState = remember { mutableStateOf(0f) }
+	// [bands] is mutated in place by the frame loop and read directly in the draw phase; [frame] is
+	// bumped each frame to invalidate only the Canvas draw (not recomposition), avoiding an array copy.
+	val bands = remember { FloatArray(AudioSpectrum.BAND_COUNT) }
+	val beatState = remember { mutableFloatStateOf(0f) }
+	val phaseState = remember { mutableFloatStateOf(0f) }
+	val frame = remember { mutableIntStateOf(0) }
+	// Reused scratch buffer for the low-passed waveform (radial branch) so it doesn't allocate per frame.
+	val waveSmooth = remember { FloatArray(AudioSpectrum.WAVE_POINTS) }
 
 	LaunchedEffect(Unit) {
-		val current = FloatArray(AudioSpectrum.BAND_COUNT)
 		var beat = 0f
 		var phase = 0f
 		while (true) {
 			withFrameNanos { }
 			val target = AudioSpectrum.bands.value
-			for (i in current.indices) {
+			for (i in bands.indices) {
 				val t = target.getOrElse(i) { 0f }
-				current[i] = if (t > current[i]) t else current[i] * 0.82f + t * 0.18f
+				bands[i] = if (t > bands[i]) t else bands[i] * 0.82f + t * 0.18f
 			}
-			display.value = current.copyOf()
 
 			// Beat level from the low bands (fast attack, slow release) drives a brightness pulse.
-			beat = beatFollow(beat, bassLevel(current))
-			beatState.value = beat.coerceIn(0f, 1f)
+			beat = beatFollow(beat, bassLevel(bands))
+			beatState.floatValue = beat.coerceIn(0f, 1f)
 
 			phase += 0.12f
-			phaseState.value = phase
+			phaseState.floatValue = phase
+			frame.intValue++
 		}
 	}
 
-	val bars = display.value
-	val beat = beatState.value
-	val phase = phaseState.value
-
 	Canvas(modifier = modifier.fillMaxSize()) {
+		frame.intValue // read the frame tick so the draw phase re-runs each frame
+		val bars = bands
+		val beat = beatState.floatValue
+		val phase = phaseState.floatValue
 		val n = bars.size
 		if (n == 0) return@Canvas
 
@@ -178,10 +183,12 @@ fun AudioVisualizer(
 			}
 			// Oscilloscope waveform traced along each oval, jittering in/out with the raw audio.
 			val wave = AudioSpectrum.waveform.value
-			if (wave.size >= 2 && (wave.maxOfOrNull { abs(it) } ?: 0f) > 0.015f) {
+			var wavePeak = 0f
+			for (v in wave) { val av = abs(v); if (av > wavePeak) wavePeak = av }
+			if (wave.size >= 2 && wavePeak > 0.015f) {
 				val waveAmp = h * 0.05f
 				val waveWidth = thickness.coerceAtLeast(3f)
-				val waveAlpha = ((wave.maxOfOrNull { abs(it) } ?: 0f) * 5f).coerceIn(0f, 0.85f)
+				val waveAlpha = (wavePeak * 5f).coerceIn(0f, 0.85f)
 				// Exactly the bars' gradient - no brightness offset. The waveform's motion is what
 				// sets it apart from the bars underneath.
 				val waveBrush = if (colorStops.size == 1) SolidColor(colorStops[0].second)
@@ -190,13 +197,15 @@ fun AudioVisualizer(
 					start = Offset(cx, cy - b * sin(halfArc)),
 					end = Offset(cx, cy + b * sin(halfArc)),
 				)
-				// Low-pass the raw samples (moving average) so the line flows in rounded curves.
-				val smooth = FloatArray(wave.size) { k ->
+				// Low-pass the raw samples (moving average) into the reused buffer so the line flows in
+				// rounded curves without a per-frame allocation.
+				for (k in wave.indices) {
 					var s = 0f
 					var cnt = 0
 					for (j in (k - 2)..(k + 2)) if (j in wave.indices) { s += wave[j]; cnt++ }
-					s / cnt
+					waveSmooth[k] = s / cnt
 				}
+				val smooth = waveSmooth
 				for (side in intArrayOf(1, -1)) {
 					val path = Path()
 					var prevX = 0f
