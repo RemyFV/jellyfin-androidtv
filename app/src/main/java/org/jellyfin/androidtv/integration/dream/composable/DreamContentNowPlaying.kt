@@ -24,7 +24,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -105,9 +104,6 @@ fun DreamContentNowPlaying(
 
 	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer, visualizerCoverColor)
 
-	// Bass-driven backdrop "punch": a quick scale kick with a rapid decay, like a speaker cone.
-	val backdropPulse = rememberBackdropPulse(showPulse)
-
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
 		val albumArtistNames = albumArtists?.mapNotNull { it.name }.orEmpty()
@@ -128,20 +124,19 @@ fun DreamContentNowPlaying(
 		}
 	}
 
-	// Background. graphicsLayer scale reads backdropPulse.scale in the draw phase (1f when the pulse is
-	// off), so the artwork punches on the bass without triggering recomposition.
+	// Background. When the bass pulse is on, render the artwork through the GLES bulge shader; otherwise
+	// a plain static image.
 	if (backgroundImage != null) {
-		AsyncImage(
-			url = backgroundImage.getUrl(api),
-			blurHash = backgroundImage.blurHash,
-			scaleType = ImageView.ScaleType.CENTER_CROP,
-			modifier = Modifier
-				.fillMaxSize()
-				.graphicsLayer {
-					scaleX = backdropPulse.scale
-					scaleY = backdropPulse.scale
-				},
-		)
+		if (showPulse) {
+			GlBackdrop(url = backgroundImage.getUrl(api), modifier = Modifier.fillMaxSize())
+		} else {
+			AsyncImage(
+				url = backgroundImage.getUrl(api),
+				blurHash = backgroundImage.blurHash,
+				scaleType = ImageView.ScaleType.CENTER_CROP,
+				modifier = Modifier.fillMaxSize(),
+			)
+		}
 	}
 
 	// Audio visualizer (over the side fill). No top inset in the centered layout: the clock is
