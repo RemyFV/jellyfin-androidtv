@@ -151,12 +151,13 @@ fun BackdropRippleOverlay(
 				center = center,
 				radius = radius,
 			)
-			// The ring line carries the same left->right gradient as the bars, spanning its own width.
+			// The ring line carries the same gradient as the soundwave, running top-to-bottom across the
+			// ring's height.
 			val ringBrush = if (colorStops.size == 1) SolidColor(colorStops[0].second)
-			else Brush.horizontalGradient(
+			else Brush.verticalGradient(
 				*colorStops.toTypedArray(),
-				startX = center.x - radius,
-				endX = center.x + radius,
+				startY = center.y - radius,
+				endY = center.y + radius,
 			)
 
 			drawCircle(brush = glow, radius = radius, alpha = alpha, blendMode = BlendMode.Overlay)
