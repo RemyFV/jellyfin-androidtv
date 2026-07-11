@@ -124,8 +124,6 @@ fun BackdropRippleOverlay(
 
 		val maxRadius = size.maxDimension * 0.6f
 		val minDim = size.minDimension
-		// Ring line uses the full bars/soundwave gradient; the softer glow tail uses the dominant stop.
-		val glowColor = colorStops[colorStops.size / 2].second
 
 		for (r in rings) {
 			val progress = (r.age / RING_LIFETIME).coerceIn(0f, 1f)
@@ -139,20 +137,9 @@ fun BackdropRippleOverlay(
 			val radius = maxRadius * progress
 			if (radius <= 1f) continue
 
-			// Leading ring line, thicker on a stronger bass hit (like a bar's length tracks its band).
+			// Ring line, thicker on a stronger bass hit (like a bar's length tracks its band), carrying
+			// the same top-to-bottom gradient as the soundwave.
 			val thickness = minDim * (0.003f + 0.018f * r.strength)
-			// Inner glow trailing behind the ring: the same colour fades to transparent a short way
-			// inside the edge, so the expanding ring drags a soft fading tail.
-			val glowInner = ((radius - minDim * 0.05f) / radius).coerceIn(0f, 1f)
-			val glow = Brush.radialGradient(
-				0f to Color.Transparent,
-				glowInner to Color.Transparent,
-				1f to glowColor,
-				center = center,
-				radius = radius,
-			)
-			// The ring line carries the same gradient as the soundwave, running top-to-bottom across the
-			// ring's height.
 			val ringBrush = if (colorStops.size == 1) SolidColor(colorStops[0].second)
 			else Brush.verticalGradient(
 				*colorStops.toTypedArray(),
@@ -160,7 +147,6 @@ fun BackdropRippleOverlay(
 				endY = center.y + radius,
 			)
 
-			drawCircle(brush = glow, radius = radius, alpha = alpha, blendMode = BlendMode.Overlay)
 			drawCircle(brush = ringBrush, radius = radius, alpha = alpha, style = Stroke(width = thickness), blendMode = BlendMode.Overlay)
 		}
 	}
