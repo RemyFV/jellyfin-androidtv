@@ -507,8 +507,8 @@
     <string name="pref_screensaver_visualizer_centerout_description">Mirror the spectrum around the middle, with bass in the center</string>
     <string name="pref_screensaver_visualizer_covercolor">Color from album cover</string>
     <string name="pref_screensaver_visualizer_covercolor_description">Tint the visualizer with an accent color sampled from the cover</string>
-    <string name="pref_screensaver_backdrop_ripple">Bass ripple on backdrop</string>
-    <string name="pref_screensaver_backdrop_ripple_description">Pulse the backdrop with a subtle zoom and expanding rings on each beat</string>
+    <string name="pref_screensaver_backdrop_pulse">Bass pulse on backdrop</string>
+    <string name="pref_screensaver_backdrop_pulse_description">Punch the backdrop with a quick speaker-cone scale kick on each beat</string>
     <string name="pref_screensaver_show_fps">Show FPS counter</string>
     <string name="pref_screensaver_show_fps_description">Show a small frame-rate counter in the top-left of the music screensaver</string>
     <string name="pref_screensaver_centered_layout">Centered player layout</string>

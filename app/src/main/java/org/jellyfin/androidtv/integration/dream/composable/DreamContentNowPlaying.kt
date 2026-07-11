@@ -78,7 +78,7 @@ fun DreamContentNowPlaying(
 	val hideNowPlayingCover = userPreferences[UserPreferences.screensaverHideNowPlayingCover]
 	val showLyrics = userPreferences[UserPreferences.screensaverShowLyrics]
 	val showVisualizer = userPreferences[UserPreferences.screensaverAudioVisualizer]
-	val showRipple = userPreferences[UserPreferences.screensaverBackdropRipple]
+	val showPulse = userPreferences[UserPreferences.screensaverBackdropPulse]
 	val showFps = userPreferences[UserPreferences.screensaverShowFps]
 	val visualizerRadial = userPreferences[UserPreferences.screensaverVisualizerRadial]
 	val visualizerCenterOut = userPreferences[UserPreferences.screensaverVisualizerCenterOut]
@@ -103,11 +103,10 @@ fun DreamContentNowPlaying(
 		?: content.item.parentBackdropImages.firstOrNull()
 		?: primaryImage
 
-	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer || showRipple, visualizerCoverColor)
+	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer, visualizerCoverColor)
 
-	// Bass-driven backdrop pulse (zoom + rings). The rings reuse the visualizer's gradient so the effect
-	// stays cohesive with the bars and soundwave.
-	val backdropPulse = rememberBackdropPulse(showRipple)
+	// Bass-driven backdrop "punch": a quick scale kick with a rapid decay, like a speaker cone.
+	val backdropPulse = rememberBackdropPulse(showPulse)
 
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
@@ -120,16 +119,17 @@ fun DreamContentNowPlaying(
 		}.joinToString(", ")
 	}
 
-	// The visualizer and the ripple both read the live spectrum, so keep the tap alive if either is on.
-	if (showVisualizer || showRipple) {
+	// The visualizer and the backdrop pulse both read the live spectrum, so keep the tap alive if either
+	// is on.
+	if (showVisualizer || showPulse) {
 		DisposableEffect(Unit) {
 			AudioSpectrum.acquire()
 			onDispose { AudioSpectrum.release() }
 		}
 	}
 
-	// Background. graphicsLayer scale reads backdropPulse.scale in the draw phase (1f when ripple is
-	// off), so the artwork zooms very slightly on the bass without triggering recomposition.
+	// Background. graphicsLayer scale reads backdropPulse.scale in the draw phase (1f when the pulse is
+	// off), so the artwork punches on the bass without triggering recomposition.
 	if (backgroundImage != null) {
 		AsyncImage(
 			url = backgroundImage.getUrl(api),
@@ -141,15 +141,6 @@ fun DreamContentNowPlaying(
 					scaleX = backdropPulse.scale
 					scaleY = backdropPulse.scale
 				},
-		)
-	}
-
-	// Expanding bass rings over the backdrop, under the text/visualizer.
-	if (showRipple) {
-		BackdropRippleOverlay(
-			pulse = backdropPulse,
-			colorStops = visualizerPalette.stops,
-			modifier = Modifier.fillMaxSize(),
 		)
 	}
 

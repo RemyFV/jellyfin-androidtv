@@ -251,9 +251,9 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverVisualizerCoverColor = booleanPreference("screensaver_visualizer_covercolor", false)
 
 		/**
-		 * Pulse the now-playing backdrop with the bass: a subtle zoom and expanding rings on each beat.
+		 * Punch the now-playing backdrop with the bass: a quick speaker-cone scale kick on each beat.
 		 */
-		var screensaverBackdropRipple = booleanPreference("screensaver_backdrop_ripple", false)
+		var screensaverBackdropPulse = booleanPreference("screensaver_backdrop_pulse", false)
 
 		/**
 		 * Show a small FPS counter in the top-left of the now-playing screensaver (for perf checks).

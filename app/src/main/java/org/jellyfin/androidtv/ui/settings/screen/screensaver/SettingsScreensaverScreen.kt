@@ -120,13 +120,13 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
-			var screensaverBackdropRipple by rememberPreference(userPreferences, UserPreferences.screensaverBackdropRipple)
+			var screensaverBackdropPulse by rememberPreference(userPreferences, UserPreferences.screensaverBackdropPulse)
 
 			ListButton(
-				headingContent = { Text(stringResource(R.string.pref_screensaver_backdrop_ripple)) },
-				trailingContent = { Checkbox(checked = screensaverBackdropRipple) },
-				captionContent = { Text(stringResource(R.string.pref_screensaver_backdrop_ripple_description)) },
-				onClick = { screensaverBackdropRipple = !screensaverBackdropRipple }
+				headingContent = { Text(stringResource(R.string.pref_screensaver_backdrop_pulse)) },
+				trailingContent = { Checkbox(checked = screensaverBackdropPulse) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_backdrop_pulse_description)) },
+				onClick = { screensaverBackdropPulse = !screensaverBackdropPulse }
 			)
 		}
 
