@@ -256,6 +256,11 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverBackdropRipple = booleanPreference("screensaver_backdrop_ripple", false)
 
 		/**
+		 * Show a small FPS counter in the top-left of the now-playing screensaver (for perf checks).
+		 */
+		var screensaverShowFps = booleanPreference("screensaver_show_fps", false)
+
+		/**
 		 * Center the clock and track info over the cover in the now-playing screensaver so the
 		 * visualizer surrounds them.
 		 */

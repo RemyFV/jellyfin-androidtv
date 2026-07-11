@@ -79,6 +79,7 @@ fun DreamContentNowPlaying(
 	val showLyrics = userPreferences[UserPreferences.screensaverShowLyrics]
 	val showVisualizer = userPreferences[UserPreferences.screensaverAudioVisualizer]
 	val showRipple = userPreferences[UserPreferences.screensaverBackdropRipple]
+	val showFps = userPreferences[UserPreferences.screensaverShowFps]
 	val visualizerRadial = userPreferences[UserPreferences.screensaverVisualizerRadial]
 	val visualizerCenterOut = userPreferences[UserPreferences.screensaverVisualizerCenterOut]
 	val visualizerCoverColor = userPreferences[UserPreferences.screensaverVisualizerCoverColor]
@@ -161,6 +162,15 @@ fun DreamContentNowPlaying(
 			centerOut = visualizerCenterOut,
 			colorStops = visualizerPalette.stops,
 			topInset = !centeredLayout,
+		)
+	}
+
+	// FPS counter (top-left, within the TV safe area). Costs nothing when the toggle is off.
+	if (showFps) {
+		FpsCounter(
+			modifier = Modifier
+				.align(Alignment.TopStart)
+				.overscan(),
 		)
 	}
 

@@ -171,7 +171,8 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 
 	private fun push(sample: Float) {
 		ring[writePos] = sample
-		writePos = (writePos + 1) % FFT_SIZE
+		// FFT_SIZE is a power of two, so a bitmask replaces the per-sample integer modulo.
+		writePos = (writePos + 1) and (FFT_SIZE - 1)
 		if (++sinceHop >= HOP) {
 			sinceHop = 0
 			process()
@@ -183,11 +184,11 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 		val wavePoints = AudioSpectrum.WAVE_POINTS
 		val waveform = FloatArray(wavePoints)
 		val step = FFT_SIZE / wavePoints
-		for (i in 0 until wavePoints) waveform[i] = ring[(writePos + i * step) % FFT_SIZE].coerceIn(-1f, 1f)
+		for (i in 0 until wavePoints) waveform[i] = ring[(writePos + i * step) and (FFT_SIZE - 1)].coerceIn(-1f, 1f)
 		AudioSpectrum.publishWaveform(waveform)
 
 		for (i in 0 until FFT_SIZE) {
-			re[i] = ring[(writePos + i) % FFT_SIZE] * window[i]
+			re[i] = ring[(writePos + i) and (FFT_SIZE - 1)] * window[i]
 			im[i] = 0f
 		}
 		fft(re, im)

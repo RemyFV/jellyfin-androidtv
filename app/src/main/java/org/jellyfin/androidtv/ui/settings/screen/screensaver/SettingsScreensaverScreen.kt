@@ -131,6 +131,17 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
+			var screensaverShowFps by rememberPreference(userPreferences, UserPreferences.screensaverShowFps)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.pref_screensaver_show_fps)) },
+				trailingContent = { Checkbox(checked = screensaverShowFps) },
+				captionContent = { Text(stringResource(R.string.pref_screensaver_show_fps_description)) },
+				onClick = { screensaverShowFps = !screensaverShowFps }
+			)
+		}
+
+		item {
 			var screensaverCenteredLayout by rememberPreference(userPreferences, UserPreferences.screensaverCenteredLayout)
 
 			ListButton(
