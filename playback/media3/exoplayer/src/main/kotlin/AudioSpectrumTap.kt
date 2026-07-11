@@ -16,11 +16,11 @@ import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.cos
 import kotlin.math.exp
-import kotlin.math.hypot
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Real-time audio spectrum sourced by tapping the decoded PCM inside our own ExoPlayer audio sink
@@ -125,6 +125,10 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 	private var sinceHop = 0
 	private val re = FloatArray(FFT_SIZE)
 	private val im = FloatArray(FFT_SIZE)
+	// Per-band FFT bin ranges, precomputed in onConfigure (they depend only on sampleRate), so process()
+	// doesn't recompute the log-spaced band edges (~96 exp/ln calls) on the audio thread every hop.
+	private var binLo = IntArray(AudioSpectrum.BAND_COUNT)
+	private var binHi = IntArray(AudioSpectrum.BAND_COUNT)
 
 	override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
 		sampleRate = inputAudioFormat.sampleRate
@@ -132,8 +136,24 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 		encoding = inputAudioFormat.encoding
 		writePos = 0
 		sinceHop = 0
+		computeBandBins()
 		// Passthrough: output format == input format (keeps this processor active as a tap).
 		return inputAudioFormat
+	}
+
+	// Log-spaced band -> FFT bin ranges. Constant for a given sampleRate, so computed once per configure.
+	private fun computeBandBins() {
+		val nyquist = sampleRate / 2f
+		val maxFreq = min(MAX_FREQ, nyquist)
+		val ratio = maxFreq / MIN_FREQ
+		val half = FFT_SIZE / 2
+		for (i in 0 until AudioSpectrum.BAND_COUNT) {
+			val f0 = MIN_FREQ * pow(ratio, i.toFloat() / AudioSpectrum.BAND_COUNT)
+			val f1 = MIN_FREQ * pow(ratio, (i + 1f) / AudioSpectrum.BAND_COUNT)
+			val b0 = (f0 * FFT_SIZE / sampleRate).toInt().coerceIn(1, half - 1)
+			binLo[i] = b0
+			binHi[i] = (f1 * FFT_SIZE / sampleRate).toInt().coerceIn(b0 + 1, half)
+		}
 	}
 
 	override fun queueInput(inputBuffer: ByteBuffer) {
@@ -194,19 +214,18 @@ private class SpectrumAudioProcessor : BaseAudioProcessor() {
 		fft(re, im)
 
 		val bands = FloatArray(AudioSpectrum.BAND_COUNT)
-		val nyquist = sampleRate / 2f
-		val maxFreq = min(MAX_FREQ, nyquist)
-		val ratio = maxFreq / MIN_FREQ
 		val half = FFT_SIZE / 2
 
 		for (i in 0 until AudioSpectrum.BAND_COUNT) {
-			val f0 = MIN_FREQ * pow(ratio, i.toFloat() / AudioSpectrum.BAND_COUNT)
-			val f1 = MIN_FREQ * pow(ratio, (i + 1f) / AudioSpectrum.BAND_COUNT)
-			val bin0 = (f0 * FFT_SIZE / sampleRate).toInt().coerceIn(1, half - 1)
-			val bin1 = (f1 * FFT_SIZE / sampleRate).toInt().coerceIn(bin0 + 1, half)
+			val bin0 = binLo[i]
+			val bin1 = binHi[i]
 
 			var mag = 0f
-			for (bin in bin0 until bin1) mag += hypot(re[bin], im[bin])
+			for (bin in bin0 until bin1) {
+				val rr = re[bin]
+				val ii = im[bin]
+				mag += sqrt(rr * rr + ii * ii)
+			}
 			mag /= (bin1 - bin0)
 
 			val normalized = mag / half

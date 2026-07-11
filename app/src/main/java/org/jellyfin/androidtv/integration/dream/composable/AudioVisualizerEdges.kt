@@ -117,11 +117,16 @@ fun AudioVisualizer(
 		// Lift [this] toward white by [f] (0 = unchanged, 1 = white).
 		fun Color.brighten(f: Float): Color = lerp(this, Color.White, f.coerceIn(0f, 1f))
 
-		// Shimmer profile along a bar (base -> tip): the base colour for the first 40%, then ramping to
-		// the brightened colour at the tip, so the glow reads as a gradient concentrated at the tip.
-		fun barShimmerStops(slot: Int): Array<Pair<Float, Color>> {
+		// Shimmer profile along a bar (base -> tip): base colour for the first 40%, then ramping to the
+		// brightened tip. One reused colours list + a constant positions list are fed to the List-based
+		// gradient overloads, so building each bar's brush allocates no Pair/spread garbage per frame.
+		val shimmerPositions = listOf(0f, 0.4f, 1f)
+		val shimmerColors = mutableListOf(Color.White, Color.White, Color.White)
+		fun updateShimmer(slot: Int) {
 			val base = barColor(slot)
-			return arrayOf(0f to base, 0.4f to base, 1f to base.brighten(barPulse(slot)))
+			shimmerColors[0] = base
+			shimmerColors[1] = base
+			shimmerColors[2] = base.brighten(barPulse(slot))
 		}
 
 		if (radial) {
@@ -153,7 +158,7 @@ fun AudioVisualizer(
 				val nx = bx / dist
 				val ny = by / dist
 				val desired = v * maxLen
-				val stops = barShimmerStops(i)
+				updateShimmer(i)
 
 				for (side in intArrayOf(1, -1)) {
 					val baseX = cx + side * (bx + xGap)
@@ -176,7 +181,7 @@ fun AudioVisualizer(
 					val gradientEnd = Offset(baseX + dx * maxReach, baseY + dy * maxReach)
 
 					drawLine(
-						Brush.linearGradient(*stops, start = start, end = gradientEnd),
+						Brush.linearGradient(shimmerColors, shimmerPositions, start = start, end = gradientEnd),
 						start, end, thickness, StrokeCap.Round,
 					)
 				}
@@ -252,18 +257,18 @@ fun AudioVisualizer(
 				if (v <= 0.01f) continue
 				val len = v * maxLen
 				val y = inset + i * slot + (slot - barHeight) / 2f
-				val stops = barShimmerStops(i)
+				updateShimmer(i)
 
 				// The gradient spans the bar's MAX length (maxLen), not its current length, so a short bar
 				// shows only the base-colour end and the tip glow appears as it grows toward full length.
 				// Left bar: base at the left screen edge (x=0), glowing tip pointing inward.
 				drawRoundRect(
-					Brush.horizontalGradient(*stops, startX = 0f, endX = maxLen),
+					Brush.horizontalGradient(shimmerColors, shimmerPositions, startX = 0f, endX = maxLen),
 					Offset(0f, y), Size(len, barHeight), radius,
 				)
 				// Right bar: base at the right screen edge, tip pointing inward.
 				drawRoundRect(
-					Brush.horizontalGradient(*stops, startX = size.width, endX = size.width - maxLen),
+					Brush.horizontalGradient(shimmerColors, shimmerPositions, startX = size.width, endX = size.width - maxLen),
 					Offset(size.width - len, y), Size(len, barHeight), radius,
 				)
 			}
