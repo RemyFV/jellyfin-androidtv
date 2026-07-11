@@ -104,10 +104,9 @@ fun DreamContentNowPlaying(
 
 	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer || showRipple, visualizerCoverColor)
 
-	// Bass-driven backdrop pulse (zoom + rings). The rings reuse the visualizer's main accent colour so
-	// the effect stays cohesive with the bars; the middle stop is the cover's dominant colour (or white).
+	// Bass-driven backdrop pulse (zoom + rings). The rings reuse the visualizer's gradient so the effect
+	// stays cohesive with the bars and soundwave.
 	val backdropPulse = rememberBackdropPulse(showRipple)
-	val rippleColor = visualizerPalette.stops[visualizerPalette.stops.size / 2].second
 
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
@@ -148,7 +147,7 @@ fun DreamContentNowPlaying(
 	if (showRipple) {
 		BackdropRippleOverlay(
 			pulse = backdropPulse,
-			color = rippleColor,
+			colorStops = visualizerPalette.stops,
 			modifier = Modifier.fillMaxSize(),
 		)
 	}
