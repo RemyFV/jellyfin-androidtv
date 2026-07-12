@@ -2,7 +2,6 @@ package org.jellyfin.androidtv.integration.dream.composable
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.SurfaceTexture
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -10,7 +9,9 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.opengl.GLUtils
-import android.view.TextureView
+import android.view.Surface
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -36,7 +37,7 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * The whole now-playing visual, rendered as a single OpenGL ES 2 pass on a [TextureView]: the cover
+ * The whole now-playing visual, rendered as a single OpenGL ES 2 pass on a [SurfaceView]: the cover
  * backdrop (with an optional bass-driven bulge/shake and an ld34 shockwave), plus the radial + centerOut
  * spectrum bars and the Catmull-smoothed oscilloscope soundwave, all as round-capped SDF capsules. This
  * replaces the per-frame Compose Canvas visualizer - a handful of GL draws with no per-frame brush
@@ -59,7 +60,7 @@ fun GlBackdrop(
 ) {
 	val context = LocalContext.current
 	val imageLoader = koinInject<ImageLoader>()
-	val view = remember { SceneTextureView(context) }
+	val view = remember { SceneSurfaceView(context) }
 
 	view.setState(bulge, visualizer, centerOut, palette)
 
@@ -97,7 +98,7 @@ private fun capSize(w: Int, h: Int): Pair<Int, Int> {
 private val SIDES = intArrayOf(1, -1)
 private val TRI_IDX = intArrayOf(0, 1, 2, 1, 3, 2)
 
-private class SceneTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
+private class SceneSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
 	@Volatile private var pendingBitmap: Bitmap? = null
 	@Volatile private var bulge = false
 	@Volatile private var visualizer = false
@@ -106,8 +107,8 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 	private var thread: RenderThread? = null
 
 	init {
-		isOpaque = true
-		surfaceTextureListener = this
+		// Default z-order: the surface sits behind the window, so the Compose text/clock draw on top.
+		holder.addCallback(this)
 	}
 
 	fun setImage(bitmap: Bitmap) { pendingBitmap = bitmap }
@@ -124,27 +125,25 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 		thread = null
 	}
 
-	override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+	override fun surfaceCreated(holder: SurfaceHolder) = Unit  // wait for surfaceChanged (has the size)
+
+	override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+		// Render at a capped resolution; the SurfaceView upscales. setFixedSize re-enters here at rw,rh.
 		val (rw, rh) = capSize(width, height)
-		surface.setDefaultBufferSize(rw, rh)
-		thread = RenderThread(surface, rw, rh).also { it.start() }
+		if (width != rw || height != rh) {
+			holder.setFixedSize(rw, rh)
+			return
+		}
+		if (thread == null) thread = RenderThread(holder.surface, rw, rh).also { it.start() }
+		else thread?.resize(rw, rh)
 	}
 
-	override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-		val (rw, rh) = capSize(width, height)
-		surface.setDefaultBufferSize(rw, rh)
-		thread?.resize(rw, rh)
-	}
-
-	override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+	override fun surfaceDestroyed(holder: SurfaceHolder) {
 		release()
-		return true
 	}
-
-	override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
 
 	private inner class RenderThread(
-		private val surfaceTexture: SurfaceTexture,
+		private val surface: Surface,
 		width: Int,
 		height: Int,
 	) : Thread("GlScene") {
@@ -564,7 +563,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			EGL14.eglChooseConfig(eglDisplay, cfg, 0, configs, 0, 1, num, 0)
 			val ctxAttr = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
 			eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, ctxAttr, 0)
-			eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, configs[0], surfaceTexture, intArrayOf(EGL14.EGL_NONE), 0)
+			eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, configs[0], surface, intArrayOf(EGL14.EGL_NONE), 0)
 			EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
 		}
 
