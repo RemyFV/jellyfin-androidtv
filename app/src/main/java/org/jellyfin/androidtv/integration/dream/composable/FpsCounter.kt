@@ -40,8 +40,10 @@ fun FpsCounter(modifier: Modifier = Modifier) {
 		}
 	}
 
+	val rw = GlStats.renderW
+	val rh = GlStats.renderH
 	OutlinedText(
-		text = "$fps fps",
+		text = if (rw > 0) "$fps fps · ${rw}x$rh" else "$fps fps",
 		color = Color.White,
 		fontSize = 14.sp,
 		modifier = modifier,
