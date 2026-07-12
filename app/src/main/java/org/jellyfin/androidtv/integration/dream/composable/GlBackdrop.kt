@@ -95,8 +95,8 @@ private const val DIR_H = 0.5f
 
 // Adaptive render-resolution ladder (longest side, px). Starts high and settles at the highest step that
 // sustains the target framerate on whatever GPU this runs on; the SurfaceView upscales to the panel.
-private val RES_STEPS = intArrayOf(1920, 1280, 1080, 960, 854, 720)
-private const val RES_START = 1  // start at 1280 (known-good); the controller probes up to native (0)
+private val RES_STEPS = intArrayOf(1280, 1080, 960, 854, 720)
+private const val RES_START = 0  // top step; only ever scales DOWN (upsizing the surface wedges swap on Amlogic)
 
 private fun capTo(w: Int, h: Int, cap: Int): Pair<Int, Int> {
 	val longest = max(w, h)
@@ -224,14 +224,11 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var startNanos = 0L
 		private var lastNanos = 0L
 
-		// Adaptive resolution state
-		private var stepIndex = RES_START  // current index into RES_STEPS
-		private var ceilingIndex = 0       // never go above this (set when a step-up proved too slow)
-		private var pendingProbe = false // just stepped up, evaluating whether it holds
+		// Adaptive resolution state (ratchet-down-only: upsizing the surface wedges swap on Amlogic)
+		private var stepIndex = RES_START
 		private var winFrames = 0
 		private var winTime = 0f
 		private var slowWins = 0
-		private var fastWins = 0
 
 		fun resize(w: Int, h: Int) { viewW = w; viewH = h; GlStats.renderW = w; GlStats.renderH = h }
 
@@ -253,25 +250,10 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			winTime = 0f
 			GlStats.fps = (fps + 0.5f).toInt()
 			if (fps < 40f) {
-				slowWins++; fastWins = 0
-				if (pendingProbe) {
-					// the higher step we just tried can't hold - revert and lock the ceiling
-					stepIndex = min(stepIndex + 1, RES_STEPS.size - 1)
-					ceilingIndex = stepIndex
-					pendingProbe = false
-					applyRes(); slowWins = 0
-				} else if (slowWins >= 2 && stepIndex < RES_STEPS.size - 1) {
-					stepIndex++; applyRes(); slowWins = 0
-				}
-			} else if (fps >= 47f) {
-				fastWins++; slowWins = 0
-				if (pendingProbe && fastWins >= 3) {
-					pendingProbe = false                              // probe held; keep the higher res
-				} else if (!pendingProbe && fastWins >= 8 && stepIndex > ceilingIndex) {
-					stepIndex--; applyRes(); fastWins = 0; pendingProbe = true
-				}
+				slowWins++
+				if (slowWins >= 2 && stepIndex < RES_STEPS.size - 1) { stepIndex++; applyRes(); slowWins = 0 }
 			} else {
-				slowWins = 0; fastWins = 0
+				slowWins = 0
 			}
 		}
 
@@ -376,7 +358,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 				setPalette(barLoc)
 				GLES20.glUniform2f(barLoc.uRes, w, h)
 				GLES20.glUniform1f(barLoc.uInvH, 8f / h)   // scale coords into mediump's sweet spot
-				GLES20.glUniform1f(barLoc.uAA, 12f / h)     // ~1.5px anti-alias band
+				GLES20.glUniform1f(barLoc.uAA, 22f / h)     // wider AA band (~2.7px) to soften the upscale
 				drawCapsules(barVbo, barBuf, barCount * 10, barLoc, 10, barCount, bars = true)
 			}
 
@@ -888,7 +870,7 @@ uniform vec3 uPal0, uPal1, uPal2;
 uniform float uWaveAlpha;
 vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
-    float aa = 1.0 - smoothstep(0.72, 1.0, abs(vEdge));  // soft long edges
+    float aa = 1.0 - smoothstep(0.55, 1.0, abs(vEdge));  // soft long edges (wide, to survive the upscale)
     gl_FragColor = vec4(pal(vT), aa * uWaveAlpha);
 }
 """
