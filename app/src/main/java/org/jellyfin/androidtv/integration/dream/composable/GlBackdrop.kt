@@ -79,7 +79,7 @@ fun GlBackdrop(
 
 private val BANDS = AudioSpectrum.BAND_COUNT
 private const val WAVE_CTRL = 40      // control points along the soundwave
-private const val WAVE_SUB = 6        // Catmull-Rom subdivisions between control points
+private const val WAVE_SUB = 3        // Catmull-Rom subdivisions between control points (less overdraw)
 private const val WAVE_GAIN = 2.5f
 private const val HIGHLIGHT = 0.05f
 private val HALF_ARC = Math.toRadians(37.0).toFloat()
@@ -282,8 +282,9 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			if (barCount > 0) {
 				barBuf.clear(); barBuf.put(barArr, 0, barCount * 10); barBuf.position(0)
 				GLES20.glUseProgram(barProg)
-				setPalette(barProg)
-				GLES20.glUniform2f(GLES20.glGetUniformLocation(barProg, "uRes"), w, h)
+				setPalette(barLoc)
+				GLES20.glUniform2f(barLoc.uRes, w, h)
+				GLES20.glUniform1f(barLoc.uInvH, 1f / h)
 				drawCapsules(barBuf, barLoc, 10, barCount, bars = true)
 			}
 
@@ -294,9 +295,10 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			}
 			if (waveAlpha > 0.001f) {
 				GLES20.glUseProgram(waveProg)
-				setPalette(waveProg)
-				GLES20.glUniform2f(GLES20.glGetUniformLocation(waveProg, "uRes"), w, h)
-				GLES20.glUniform1f(GLES20.glGetUniformLocation(waveProg, "uWaveAlpha"), waveAlpha)
+				setPalette(waveLoc)
+				GLES20.glUniform2f(waveLoc.uRes, w, h)
+				GLES20.glUniform1f(waveLoc.uInvH, 1f / h)
+				GLES20.glUniform1f(waveLoc.uWaveAlpha, waveAlpha)
 				if (waveCountL > 0) {
 					waveBufL.clear(); waveBufL.put(waveArrL, 0, waveCountL * 8); waveBufL.position(0)
 					drawCapsules(waveBufL, waveLoc, 8, waveCountL, bars = false)
@@ -308,11 +310,11 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			}
 		}
 
-		private fun setPalette(prog: Int) {
+		private fun setPalette(loc: CapLoc) {
 			val p = palette
-			GLES20.glUniform3f(GLES20.glGetUniformLocation(prog, "uPal0"), p[0], p[1], p[2])
-			GLES20.glUniform3f(GLES20.glGetUniformLocation(prog, "uPal1"), p[3], p[4], p[5])
-			GLES20.glUniform3f(GLES20.glGetUniformLocation(prog, "uPal2"), p[6], p[7], p[8])
+			GLES20.glUniform3f(loc.uPal0, p[0], p[1], p[2])
+			GLES20.glUniform3f(loc.uPal1, p[3], p[4], p[5])
+			GLES20.glUniform3f(loc.uPal2, p[6], p[7], p[8])
 		}
 
 		private fun drawCapsules(buf: FloatBuffer, loc: CapLoc, stride: Int, verts: Int, bars: Boolean) {
@@ -562,17 +564,24 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 	private class CapLoc {
 		var pos = 0; var a = 0; var b = 0; var radius = 0
 		var lenReach = 0; var frac = 0; var pulse = 0; var t = 0
+		var uRes = 0; var uInvH = 0; var uPal0 = 0; var uPal1 = 0; var uPal2 = 0; var uWaveAlpha = 0
 		fun bind(prog: Int, bars: Boolean) {
 			pos = GLES20.glGetAttribLocation(prog, "aPosPx")
 			a = GLES20.glGetAttribLocation(prog, "aA")
 			b = GLES20.glGetAttribLocation(prog, "aB")
 			radius = GLES20.glGetAttribLocation(prog, "aRadius")
+			uRes = GLES20.glGetUniformLocation(prog, "uRes")
+			uInvH = GLES20.glGetUniformLocation(prog, "uInvH")
+			uPal0 = GLES20.glGetUniformLocation(prog, "uPal0")
+			uPal1 = GLES20.glGetUniformLocation(prog, "uPal1")
+			uPal2 = GLES20.glGetUniformLocation(prog, "uPal2")
 			if (bars) {
 				lenReach = GLES20.glGetAttribLocation(prog, "aLenReach")
 				frac = GLES20.glGetAttribLocation(prog, "aFrac")
 				pulse = GLES20.glGetAttribLocation(prog, "aPulse")
 			} else {
 				t = GLES20.glGetAttribLocation(prog, "aT")
+				uWaveAlpha = GLES20.glGetUniformLocation(prog, "uWaveAlpha")
 			}
 		}
 	}
@@ -655,14 +664,17 @@ void main() {
 }
 """
 
+// SDF works in height-normalized coords (uInvH) so magnitudes stay ~0..2: mediump-safe (no overflow)
+// and fast on Mali, and we output alpha instead of discard() (discard wrecks tile-based HSR).
 private const val CAP_VERT_BAR = """
 attribute vec2 aPosPx; attribute vec2 aA; attribute vec2 aB; attribute float aRadius;
 attribute float aLenReach; attribute float aFrac; attribute float aPulse;
-uniform vec2 uRes;
+uniform vec2 uRes; uniform float uInvH;
 varying vec2 vPos; varying vec2 vA; varying vec2 vB; varying float vRad;
 varying float vLenReach; varying float vFrac; varying float vPulse;
 void main() {
-    vPos = aPosPx; vA = aA; vB = aB; vRad = aRadius; vLenReach = aLenReach; vFrac = aFrac; vPulse = aPulse;
+    vPos = aPosPx * uInvH; vA = aA * uInvH; vB = aB * uInvH; vRad = aRadius * uInvH;
+    vLenReach = aLenReach; vFrac = aFrac; vPulse = aPulse;
     vec2 ndc = vec2(aPosPx.x / uRes.x * 2.0 - 1.0, 1.0 - aPosPx.y / uRes.y * 2.0);
     gl_Position = vec4(ndc, 0.0, 1.0);
 }
@@ -675,10 +687,9 @@ uniform vec3 uPal0, uPal1, uPal2;
 vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
     vec2 pa = vPos - vA; vec2 ba = vB - vA;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
     float dseg = length(pa - ba * h);
-    float aa = 1.0 - smoothstep(vRad - 1.0, vRad + 0.5, dseg);
-    if (aa <= 0.0) discard;
+    float aa = 1.0 - smoothstep(vRad - 0.0018, vRad + 0.0018, dseg);
     float b = clamp(smoothstep(0.4, 1.0, h * vLenReach) * vPulse, 0.0, 1.0);
     gl_FragColor = vec4(mix(pal(vFrac), vec3(1.0), b), aa);
 }
@@ -686,10 +697,10 @@ void main() {
 
 private const val CAP_VERT_WAVE = """
 attribute vec2 aPosPx; attribute vec2 aA; attribute vec2 aB; attribute float aRadius; attribute float aT;
-uniform vec2 uRes;
+uniform vec2 uRes; uniform float uInvH;
 varying vec2 vPos; varying vec2 vA; varying vec2 vB; varying float vRad; varying float vT;
 void main() {
-    vPos = aPosPx; vA = aA; vB = aB; vRad = aRadius; vT = aT;
+    vPos = aPosPx * uInvH; vA = aA * uInvH; vB = aB * uInvH; vRad = aRadius * uInvH; vT = aT;
     vec2 ndc = vec2(aPosPx.x / uRes.x * 2.0 - 1.0, 1.0 - aPosPx.y / uRes.y * 2.0);
     gl_Position = vec4(ndc, 0.0, 1.0);
 }
@@ -702,10 +713,9 @@ uniform float uWaveAlpha;
 vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
     vec2 pa = vPos - vA; vec2 ba = vB - vA;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
     float dseg = length(pa - ba * h);
-    float aa = 1.0 - smoothstep(vRad - 1.0, vRad + 0.5, dseg);
-    if (aa <= 0.0) discard;
+    float aa = 1.0 - smoothstep(vRad - 0.0018, vRad + 0.0018, dseg);
     gl_FragColor = vec4(pal(vT), aa * uWaveAlpha);
 }
 """
