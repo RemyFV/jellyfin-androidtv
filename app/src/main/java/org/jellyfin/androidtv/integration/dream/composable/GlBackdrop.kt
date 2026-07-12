@@ -83,14 +83,17 @@ private const val WAVE_CTRL = 40      // control points along the soundwave
 private const val WAVE_SUB = 3        // Catmull-Rom subdivisions between control points (less overdraw)
 private const val WAVE_GAIN = 2.5f
 private const val HIGHLIGHT = 0.05f
-private const val RENDER_MAX = 1280   // cap the GL render resolution; the view upscales (Mali-G31 is weak)
 private val HALF_ARC = Math.toRadians(37.0).toFloat()
 private const val DIR_H = 0.5f
 
-private fun capSize(w: Int, h: Int): Pair<Int, Int> {
+// Adaptive render-resolution ladder (longest side, px). Starts high and settles at the highest step that
+// sustains the target framerate on whatever GPU this runs on; the SurfaceView upscales to the panel.
+private val RES_STEPS = intArrayOf(1280, 1080, 960, 854, 720)
+
+private fun capTo(w: Int, h: Int, cap: Int): Pair<Int, Int> {
 	val longest = max(w, h)
-	if (longest <= RENDER_MAX || longest == 0) return w to h
-	val s = RENDER_MAX.toFloat() / longest
+	if (longest <= cap || longest == 0) return w to h
+	val s = cap.toFloat() / longest
 	return max(1, (w * s).toInt()) to max(1, (h * s).toInt())
 }
 
@@ -128,14 +131,9 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 	override fun surfaceCreated(holder: SurfaceHolder) = Unit  // wait for surfaceChanged (has the size)
 
 	override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-		// Render at a capped resolution; the SurfaceView upscales. setFixedSize re-enters here at rw,rh.
-		val (rw, rh) = capSize(width, height)
-		if (width != rw || height != rh) {
-			holder.setFixedSize(rw, rh)
-			return
-		}
-		if (thread == null) thread = RenderThread(holder.surface, rw, rh).also { it.start() }
-		else thread?.resize(rw, rh)
+		// Buffer size (incl. adaptive setFixedSize changes) arrives here; the render thread owns the cap.
+		if (thread == null) thread = RenderThread(holder.surface, width, height).also { it.start() }
+		else thread?.resize(width, height)
 	}
 
 	override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -218,12 +216,61 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var startNanos = 0L
 		private var lastNanos = 0L
 
+		// Adaptive resolution state
+		private var stepIndex = 0        // current index into RES_STEPS
+		private var ceilingIndex = 0     // never go above this (set when a step-up proved too slow)
+		private var pendingProbe = false // just stepped up, evaluating whether it holds
+		private var winFrames = 0
+		private var winTime = 0f
+		private var slowWins = 0
+		private var fastWins = 0
+
 		fun resize(w: Int, h: Int) { viewW = w; viewH = h }
+
+		private fun applyRes() {
+			val nw = this@SceneSurfaceView.width
+			val nh = this@SceneSurfaceView.height
+			if (nw <= 0 || nh <= 0) return
+			val (rw, rh) = capTo(nw, nh, RES_STEPS[stepIndex])
+			this@SceneSurfaceView.post { runCatching { holder.setFixedSize(rw, rh) } }
+		}
+
+		// Achieved-FPS controller (eglSwapBuffers blocks on vsync, so swaps/sec reflects GPU load).
+		private fun adapt(dt: Float) {
+			winFrames++
+			winTime += dt
+			if (winTime < 1f) return
+			val fps = winFrames / winTime
+			winFrames = 0
+			winTime = 0f
+			if (fps < 40f) {
+				slowWins++; fastWins = 0
+				if (pendingProbe) {
+					// the higher step we just tried can't hold - revert and lock the ceiling
+					stepIndex = min(stepIndex + 1, RES_STEPS.size - 1)
+					ceilingIndex = stepIndex
+					pendingProbe = false
+					applyRes(); slowWins = 0
+				} else if (slowWins >= 2 && stepIndex < RES_STEPS.size - 1) {
+					stepIndex++; applyRes(); slowWins = 0
+				}
+			} else if (fps >= 47f) {
+				fastWins++; slowWins = 0
+				if (pendingProbe && fastWins >= 3) {
+					pendingProbe = false                              // probe held; keep the higher res
+				} else if (!pendingProbe && fastWins >= 8 && stepIndex > ceilingIndex) {
+					stepIndex--; applyRes(); fastWins = 0; pendingProbe = true
+				}
+			} else {
+				slowWins = 0; fastWins = 0
+			}
+		}
 
 		override fun run() {
 			try {
 				initEgl()
 				initGl()
+				applyRes()  // request the initial (top-of-ladder) capped resolution
 				startNanos = System.nanoTime()
 				lastNanos = startNanos
 				while (running) {
@@ -243,6 +290,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			val t = (now - startNanos) / 1e9f
 			val dt = ((now - lastNanos) / 1e9f).coerceIn(0f, 0.1f)
 			lastNanos = now
+			adapt(dt)
 
 			// Smooth the spectrum (fast attack, slow release), as the Compose visualizer did.
 			val target = AudioSpectrum.bands.value
