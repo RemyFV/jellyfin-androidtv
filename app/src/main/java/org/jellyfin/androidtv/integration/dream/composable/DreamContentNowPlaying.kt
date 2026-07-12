@@ -79,7 +79,6 @@ fun DreamContentNowPlaying(
 	val showVisualizer = userPreferences[UserPreferences.screensaverAudioVisualizer]
 	val showPulse = userPreferences[UserPreferences.screensaverBackdropPulse]
 	val showFps = userPreferences[UserPreferences.screensaverShowFps]
-	val visualizerRadial = userPreferences[UserPreferences.screensaverVisualizerRadial]
 	val visualizerCenterOut = userPreferences[UserPreferences.screensaverVisualizerCenterOut]
 	val visualizerCoverColor = userPreferences[UserPreferences.screensaverVisualizerCoverColor]
 	val centeredLayout = userPreferences[UserPreferences.screensaverCenteredLayout]
@@ -104,6 +103,16 @@ fun DreamContentNowPlaying(
 
 	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer, visualizerCoverColor)
 
+	// Three gradient stops (left, main, right) as flat RGB floats for the GL bars/soundwave.
+	val paletteFloats = remember(visualizerPalette) {
+		val stops = visualizerPalette.stops
+		fun rgb(i: Int) = stops[i.coerceIn(0, stops.size - 1)].second
+		val a = rgb(0)
+		val b = rgb(stops.size / 2)
+		val c = rgb(stops.size - 1)
+		floatArrayOf(a.red, a.green, a.blue, b.red, b.green, b.blue, c.red, c.green, c.blue)
+	}
+
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
 		val albumArtistNames = albumArtists?.mapNotNull { it.name }.orEmpty()
@@ -124,11 +133,18 @@ fun DreamContentNowPlaying(
 		}
 	}
 
-	// Background. When the bass pulse is on, render the artwork through the GLES bulge shader; otherwise
-	// a plain static image.
+	// Backdrop + visualizer, rendered together in one GLES pass whenever the pulse or the visualizer is
+	// enabled (radial + centerOut bars and the soundwave); otherwise a plain static cover.
 	if (backgroundImage != null) {
-		if (showPulse) {
-			GlBackdrop(url = backgroundImage.getUrl(api), modifier = Modifier.fillMaxSize())
+		if (showPulse || showVisualizer) {
+			GlBackdrop(
+				url = backgroundImage.getUrl(api),
+				bulge = showPulse,
+				visualizer = showVisualizer,
+				centerOut = visualizerCenterOut,
+				palette = paletteFloats,
+				modifier = Modifier.fillMaxSize(),
+			)
 		} else {
 			AsyncImage(
 				url = backgroundImage.getUrl(api),
@@ -137,18 +153,6 @@ fun DreamContentNowPlaying(
 				modifier = Modifier.fillMaxSize(),
 			)
 		}
-	}
-
-	// Audio visualizer (over the side fill). No top inset in the centered layout: the clock is
-	// centered, so the top corners are free.
-	if (showVisualizer) {
-		AudioVisualizer(
-			modifier = Modifier.fillMaxSize(),
-			radial = visualizerRadial,
-			centerOut = visualizerCenterOut,
-			colorStops = visualizerPalette.stops,
-			topInset = !centeredLayout,
-		)
 	}
 
 	// FPS counter (top-left, within the TV safe area). Costs nothing when the toggle is off.
