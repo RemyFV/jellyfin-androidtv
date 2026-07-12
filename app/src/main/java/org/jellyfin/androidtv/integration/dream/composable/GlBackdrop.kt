@@ -82,6 +82,7 @@ fun GlBackdrop(
 object GlStats {
 	@Volatile var renderW = 0
 	@Volatile var renderH = 0
+	@Volatile var fps = 0   // measured on the GL render thread (authoritative)
 }
 
 private val BANDS = AudioSpectrum.BAND_COUNT
@@ -249,6 +250,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			val fps = winFrames / winTime
 			winFrames = 0
 			winTime = 0f
+			GlStats.fps = (fps + 0.5f).toInt()
 			if (fps < 40f) {
 				slowWins++; fastWins = 0
 				if (pendingProbe) {
@@ -619,6 +621,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, ctxAttr, 0)
 			eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, configs[0], surface, intArrayOf(EGL14.EGL_NONE), 0)
 			EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+			EGL14.eglSwapInterval(eglDisplay, 1)  // pace swaps to vsync so the measured rate is the real one
 		}
 
 		private fun initGl() {
