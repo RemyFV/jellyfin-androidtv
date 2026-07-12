@@ -175,6 +175,8 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 		private var texW = 1
 		private var texH = 1
 		private var hasTexture = false
+		private var barVbo = 0
+		private var waveVbo = 0
 
 		// reused geometry buffers (no per-frame allocation)
 		private val barArr = FloatArray(BANDS * 2 * 6 * 10)
@@ -298,7 +300,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 				GLES20.glUniform2f(barLoc.uRes, w, h)
 				GLES20.glUniform1f(barLoc.uInvH, 8f / h)   // scale coords into mediump's sweet spot
 				GLES20.glUniform1f(barLoc.uAA, 12f / h)     // ~1.5px anti-alias band
-				drawCapsules(barBuf, barLoc, 10, barCount, bars = true)
+				drawCapsules(barVbo, barBuf, barCount * 10, barLoc, 10, barCount, bars = true)
 			}
 
 			// --- soundwave --- (rebuilt ~15x/s, held between, like Android's per-hop update)
@@ -315,11 +317,11 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 				GLES20.glUniform1f(waveLoc.uWaveAlpha, waveAlpha)
 				if (waveCountL > 0) {
 					waveBufL.clear(); waveBufL.put(waveArrL, 0, waveCountL * 8); waveBufL.position(0)
-					drawCapsules(waveBufL, waveLoc, 8, waveCountL, bars = false)
+					drawCapsules(waveVbo, waveBufL, waveCountL * 8, waveLoc, 8, waveCountL, bars = false)
 				}
 				if (waveCountR > 0) {
 					waveBufR.clear(); waveBufR.put(waveArrR, 0, waveCountR * 8); waveBufR.position(0)
-					drawCapsules(waveBufR, waveLoc, 8, waveCountR, bars = false)
+					drawCapsules(waveVbo, waveBufR, waveCountR * 8, waveLoc, 8, waveCountR, bars = false)
 				}
 			}
 		}
@@ -331,26 +333,23 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			GLES20.glUniform3f(loc.uPal2, p[6], p[7], p[8])
 		}
 
-		private fun drawCapsules(buf: FloatBuffer, loc: CapLoc, stride: Int, verts: Int, bars: Boolean) {
+		private fun drawCapsules(vbo: Int, staging: FloatBuffer, floatCount: Int, loc: CapLoc, stride: Int, verts: Int, bars: Boolean) {
+			// Upload to a VBO and address attributes by explicit byte offset: interleaved client-side
+			// arrays (buffer.position() per attribute) are unreliable on Android and made vA==vB (circles).
+			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
+			staging.position(0)
+			GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, floatCount * 4, staging, GLES20.GL_DYNAMIC_DRAW)
 			val sb = stride * 4
-			buf.position(0); GLES20.glEnableVertexAttribArray(loc.pos)
-			GLES20.glVertexAttribPointer(loc.pos, 2, GLES20.GL_FLOAT, false, sb, buf)
-			buf.position(2); GLES20.glEnableVertexAttribArray(loc.a)
-			GLES20.glVertexAttribPointer(loc.a, 2, GLES20.GL_FLOAT, false, sb, buf)
-			buf.position(4); GLES20.glEnableVertexAttribArray(loc.b)
-			GLES20.glVertexAttribPointer(loc.b, 2, GLES20.GL_FLOAT, false, sb, buf)
-			buf.position(6); GLES20.glEnableVertexAttribArray(loc.radius)
-			GLES20.glVertexAttribPointer(loc.radius, 1, GLES20.GL_FLOAT, false, sb, buf)
+			GLES20.glEnableVertexAttribArray(loc.pos); GLES20.glVertexAttribPointer(loc.pos, 2, GLES20.GL_FLOAT, false, sb, 0)
+			GLES20.glEnableVertexAttribArray(loc.a); GLES20.glVertexAttribPointer(loc.a, 2, GLES20.GL_FLOAT, false, sb, 2 * 4)
+			GLES20.glEnableVertexAttribArray(loc.b); GLES20.glVertexAttribPointer(loc.b, 2, GLES20.GL_FLOAT, false, sb, 4 * 4)
+			GLES20.glEnableVertexAttribArray(loc.radius); GLES20.glVertexAttribPointer(loc.radius, 1, GLES20.GL_FLOAT, false, sb, 6 * 4)
 			if (bars) {
-				buf.position(7); GLES20.glEnableVertexAttribArray(loc.lenReach)
-				GLES20.glVertexAttribPointer(loc.lenReach, 1, GLES20.GL_FLOAT, false, sb, buf)
-				buf.position(8); GLES20.glEnableVertexAttribArray(loc.frac)
-				GLES20.glVertexAttribPointer(loc.frac, 1, GLES20.GL_FLOAT, false, sb, buf)
-				buf.position(9); GLES20.glEnableVertexAttribArray(loc.pulse)
-				GLES20.glVertexAttribPointer(loc.pulse, 1, GLES20.GL_FLOAT, false, sb, buf)
+				GLES20.glEnableVertexAttribArray(loc.lenReach); GLES20.glVertexAttribPointer(loc.lenReach, 1, GLES20.GL_FLOAT, false, sb, 7 * 4)
+				GLES20.glEnableVertexAttribArray(loc.frac); GLES20.glVertexAttribPointer(loc.frac, 1, GLES20.GL_FLOAT, false, sb, 8 * 4)
+				GLES20.glEnableVertexAttribArray(loc.pulse); GLES20.glVertexAttribPointer(loc.pulse, 1, GLES20.GL_FLOAT, false, sb, 9 * 4)
 			} else {
-				buf.position(7); GLES20.glEnableVertexAttribArray(loc.t)
-				GLES20.glVertexAttribPointer(loc.t, 1, GLES20.GL_FLOAT, false, sb, buf)
+				GLES20.glEnableVertexAttribArray(loc.t); GLES20.glVertexAttribPointer(loc.t, 1, GLES20.GL_FLOAT, false, sb, 7 * 4)
 			}
 			GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, verts)
 			GLES20.glDisableVertexAttribArray(loc.pos)
@@ -364,6 +363,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			} else {
 				GLES20.glDisableVertexAttribArray(loc.t)
 			}
+			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
 		}
 
 		// ---- geometry (ported from the validated preview) ----
@@ -539,6 +539,11 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			val ids = IntArray(1)
 			GLES20.glGenTextures(1, ids, 0)
 			texId = ids[0]
+
+			val bufs = IntArray(2)
+			GLES20.glGenBuffers(2, bufs, 0)
+			barVbo = bufs[0]
+			waveVbo = bufs[1]
 		}
 
 		private fun uploadTexture(bitmap: Bitmap) {
