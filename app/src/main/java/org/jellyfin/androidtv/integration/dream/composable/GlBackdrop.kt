@@ -78,6 +78,12 @@ fun GlBackdrop(
 	AndroidView(modifier = modifier, factory = { view }, onRelease = { it.release() })
 }
 
+/** Live GL render stats, surfaced in the FPS counter for tuning. */
+object GlStats {
+	@Volatile var renderW = 0
+	@Volatile var renderH = 0
+}
+
 private val BANDS = AudioSpectrum.BAND_COUNT
 private const val WAVE_CTRL = 40      // control points along the soundwave
 private const val WAVE_SUB = 3        // Catmull-Rom subdivisions between control points (less overdraw)
@@ -225,7 +231,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var slowWins = 0
 		private var fastWins = 0
 
-		fun resize(w: Int, h: Int) { viewW = w; viewH = h }
+		fun resize(w: Int, h: Int) { viewW = w; viewH = h; GlStats.renderW = w; GlStats.renderH = h }
 
 		private fun applyRes() {
 			val nw = this@SceneSurfaceView.width
