@@ -169,7 +169,14 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 		private var barProg = 0
 		private var waveProg = 0
 		private val barLoc = CapLoc()
-		private val waveLoc = CapLoc()
+		private var wPos = 0
+		private var wEdge = 0
+		private var wT = 0
+		private var wURes = 0
+		private var wUPal0 = 0
+		private var wUPal1 = 0
+		private var wUPal2 = 0
+		private var wUWaveAlpha = 0
 
 		private var texId = 0
 		private var texW = 1
@@ -310,18 +317,19 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			}
 			if (waveAlpha > 0.001f) {
 				GLES20.glUseProgram(waveProg)
-				setPalette(waveLoc)
-				GLES20.glUniform2f(waveLoc.uRes, w, h)
-				GLES20.glUniform1f(waveLoc.uInvH, 8f / h)
-				GLES20.glUniform1f(waveLoc.uAA, 12f / h)
-				GLES20.glUniform1f(waveLoc.uWaveAlpha, waveAlpha)
+				val p = palette
+				GLES20.glUniform3f(wUPal0, p[0], p[1], p[2])
+				GLES20.glUniform3f(wUPal1, p[3], p[4], p[5])
+				GLES20.glUniform3f(wUPal2, p[6], p[7], p[8])
+				GLES20.glUniform2f(wURes, w, h)
+				GLES20.glUniform1f(wUWaveAlpha, waveAlpha)
 				if (waveCountL > 0) {
-					waveBufL.clear(); waveBufL.put(waveArrL, 0, waveCountL * 8); waveBufL.position(0)
-					drawCapsules(waveVbo, waveBufL, waveCountL * 8, waveLoc, 8, waveCountL, bars = false)
+					waveBufL.clear(); waveBufL.put(waveArrL, 0, waveCountL * 4); waveBufL.position(0)
+					drawWaveStrip(waveBufL, waveCountL * 4, waveCountL)
 				}
 				if (waveCountR > 0) {
-					waveBufR.clear(); waveBufR.put(waveArrR, 0, waveCountR * 8); waveBufR.position(0)
-					drawCapsules(waveVbo, waveBufR, waveCountR * 8, waveLoc, 8, waveCountR, bars = false)
+					waveBufR.clear(); waveBufR.put(waveArrR, 0, waveCountR * 4); waveBufR.position(0)
+					drawWaveStrip(waveBufR, waveCountR * 4, waveCountR)
 				}
 			}
 		}
@@ -363,6 +371,21 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			} else {
 				GLES20.glDisableVertexAttribArray(loc.t)
 			}
+			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+		}
+
+		private fun drawWaveStrip(staging: FloatBuffer, floatCount: Int, verts: Int) {
+			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, waveVbo)
+			staging.position(0)
+			GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, floatCount * 4, staging, GLES20.GL_DYNAMIC_DRAW)
+			val sb = 4 * 4
+			GLES20.glEnableVertexAttribArray(wPos); GLES20.glVertexAttribPointer(wPos, 2, GLES20.GL_FLOAT, false, sb, 0)
+			GLES20.glEnableVertexAttribArray(wEdge); GLES20.glVertexAttribPointer(wEdge, 1, GLES20.GL_FLOAT, false, sb, 2 * 4)
+			GLES20.glEnableVertexAttribArray(wT); GLES20.glVertexAttribPointer(wT, 1, GLES20.GL_FLOAT, false, sb, 3 * 4)
+			GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, verts)
+			GLES20.glDisableVertexAttribArray(wPos)
+			GLES20.glDisableVertexAttribArray(wEdge)
+			GLES20.glDisableVertexAttribArray(wT)
 			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
 		}
 
@@ -444,10 +467,11 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			val xGap = h * 0.10f
 			val waveAmp = h * 0.056f
 			val r = max(4f, h / (BANDS * 1.6f)) / 2f
+			val dense = (WAVE_CTRL - 1) * WAVE_SUB + 1
 			for (side in intArrayOf(1, -1)) {
-				// arc points with the wave offset
-				val px = FloatArray(WAVE_CTRL)
-				val py = FloatArray(WAVE_CTRL)
+				// control points along the arc, offset by the wave sample
+				val cpx = FloatArray(WAVE_CTRL)
+				val cpy = FloatArray(WAVE_CTRL)
 				for (k in 0 until WAVE_CTRL) {
 					val frac = k.toFloat() / (WAVE_CTRL - 1)
 					val tt = -HALF_ARC + frac * (2f * HALF_ARC)
@@ -459,37 +483,46 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 					val dl = hypot(dx, dy).coerceAtLeast(1e-4f)
 					dx /= dl; dy /= dl
 					val off = ctrl[k] * waveAmp
-					px[k] = cx + side * (bx + xGap) + dx * off
-					py[k] = cy + by + dy * off
+					cpx[k] = cx + side * (bx + xGap) + dx * off
+					cpy[k] = cy + by + dy * off
 				}
-				// Catmull-Rom upsample into a smooth curve, then capsule segments
-				val arr = if (side == 1) waveArrL else waveArrR
-				var cur2 = 0
-				var prevX = px[0]
-				var prevY = py[0]
-				var first = true
-				val total = (WAVE_CTRL - 1) * WAVE_SUB
-				var idx = 0
+				// Catmull-Rom upsample into a smooth dense curve
+				val dpx = FloatArray(dense)
+				val dpy = FloatArray(dense)
+				var di = 0
 				for (i in 0 until WAVE_CTRL - 1) {
-					val p0x = if (i > 0) px[i - 1] else px[i]
-					val p0y = if (i > 0) py[i - 1] else py[i]
-					val p3x = if (i + 2 < WAVE_CTRL) px[i + 2] else px[i + 1]
-					val p3y = if (i + 2 < WAVE_CTRL) py[i + 2] else py[i + 1]
+					val p0x = if (i > 0) cpx[i - 1] else cpx[i]
+					val p0y = if (i > 0) cpy[i - 1] else cpy[i]
+					val p3x = if (i + 2 < WAVE_CTRL) cpx[i + 2] else cpx[i + 1]
+					val p3y = if (i + 2 < WAVE_CTRL) cpy[i + 2] else cpy[i + 1]
 					for (s in 0 until WAVE_SUB) {
 						val u = s.toFloat() / WAVE_SUB
-						val cxp = catmull(p0x, px[i], px[i + 1], p3x, u)
-						val cyp = catmull(p0y, py[i], py[i + 1], p3y, u)
-						if (!first) {
-							cur2 = capsule(arr, cur2, prevX, prevY, cxp, cyp, r,
-								floatArrayOf(idx.toFloat() / total))
-						}
-						prevX = cxp; prevY = cyp; first = false; idx++
+						dpx[di] = catmull(p0x, cpx[i], cpx[i + 1], p3x, u)
+						dpy[di] = catmull(p0y, cpy[i], cpy[i + 1], p3y, u)
+						di++
 					}
 				}
-				// final point
-				cur2 = capsule(arr, cur2, prevX, prevY, px[WAVE_CTRL - 1], py[WAVE_CTRL - 1], r,
-					floatArrayOf(1f))
-				if (side == 1) waveCountL = cur2 / 8 else waveCountR = cur2 / 8
+				dpx[di] = cpx[WAVE_CTRL - 1]; dpy[di] = cpy[WAVE_CTRL - 1]
+
+				// emit a continuous ribbon: two edge vertices per dense point (aEdge -1/+1, aT along)
+				val arr = if (side == 1) waveArrL else waveArrR
+				var c = 0
+				for (k in 0 until dense) {
+					val txv: Float
+					val tyv: Float
+					when {
+						k == 0 -> { txv = dpx[1] - dpx[0]; tyv = dpy[1] - dpy[0] }
+						k == dense - 1 -> { txv = dpx[k] - dpx[k - 1]; tyv = dpy[k] - dpy[k - 1] }
+						else -> { txv = dpx[k + 1] - dpx[k - 1]; tyv = dpy[k + 1] - dpy[k - 1] }
+					}
+					val tl = hypot(txv, tyv).coerceAtLeast(1e-4f)
+					val perpx = -tyv / tl * r
+					val perpy = txv / tl * r
+					val tCoord = k.toFloat() / (dense - 1)
+					arr[c++] = dpx[k] + perpx; arr[c++] = dpy[k] + perpy; arr[c++] = 1f; arr[c++] = tCoord
+					arr[c++] = dpx[k] - perpx; arr[c++] = dpy[k] - perpy; arr[c++] = -1f; arr[c++] = tCoord
+				}
+				if (side == 1) waveCountL = c / 4 else waveCountR = c / 4
 			}
 		}
 
@@ -530,8 +563,15 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 
 			barProg = buildProgram(CAP_VERT_BAR, CAP_FRAG_BAR)
 			barLoc.bind(barProg, bars = true)
-			waveProg = buildProgram(CAP_VERT_WAVE, CAP_FRAG_WAVE)
-			waveLoc.bind(waveProg, bars = false)
+			waveProg = buildProgram(WAVE_VERT, WAVE_FRAG)
+			wPos = GLES20.glGetAttribLocation(waveProg, "aPosPx")
+			wEdge = GLES20.glGetAttribLocation(waveProg, "aEdge")
+			wT = GLES20.glGetAttribLocation(waveProg, "aT")
+			wURes = GLES20.glGetUniformLocation(waveProg, "uRes")
+			wUPal0 = GLES20.glGetUniformLocation(waveProg, "uPal0")
+			wUPal1 = GLES20.glGetUniformLocation(waveProg, "uPal1")
+			wUPal2 = GLES20.glGetUniformLocation(waveProg, "uPal2")
+			wUWaveAlpha = GLES20.glGetUniformLocation(waveProg, "uWaveAlpha")
 
 			val v = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
 			quad = directBuffer(v.size).also { it.put(v); it.position(0) }
@@ -717,28 +757,26 @@ void main() {
 }
 """
 
-private const val CAP_VERT_WAVE = """
-attribute vec2 aPosPx; attribute vec2 aA; attribute vec2 aB; attribute float aRadius; attribute float aT;
-uniform vec2 uRes; uniform float uInvH;
-varying vec2 vPos; varying vec2 vA; varying vec2 vB; varying float vRad; varying float vT;
+// The soundwave is ONE continuous triangle-strip ribbon (not overlapping capsules, which double-blend
+// at the joins and bead when translucent). aEdge is the signed perpendicular coord (-1..1) for edge AA.
+private const val WAVE_VERT = """
+attribute vec2 aPosPx; attribute float aEdge; attribute float aT;
+uniform vec2 uRes;
+varying float vEdge; varying float vT;
 void main() {
-    vPos = aPosPx * uInvH; vA = aA * uInvH; vB = aB * uInvH; vRad = aRadius * uInvH; vT = aT;
+    vEdge = aEdge; vT = aT;
     vec2 ndc = vec2(aPosPx.x / uRes.x * 2.0 - 1.0, 1.0 - aPosPx.y / uRes.y * 2.0);
     gl_Position = vec4(ndc, 0.0, 1.0);
 }
 """
-private const val CAP_FRAG_WAVE = """
+private const val WAVE_FRAG = """
 precision mediump float;
-varying vec2 vPos; varying vec2 vA; varying vec2 vB; varying float vRad; varying float vT;
+varying float vEdge; varying float vT;
 uniform vec3 uPal0, uPal1, uPal2;
 uniform float uWaveAlpha;
-uniform float uAA;
 vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
-    vec2 pa = vPos - vA; vec2 ba = vB - vA;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-3), 0.0, 1.0);
-    float dseg = length(pa - ba * h);
-    float aa = 1.0 - smoothstep(vRad - uAA, vRad + uAA, dseg);
+    float aa = 1.0 - smoothstep(0.72, 1.0, abs(vEdge));  // soft long edges
     gl_FragColor = vec4(pal(vT), aa * uWaveAlpha);
 }
 """
