@@ -82,8 +82,16 @@ private const val WAVE_CTRL = 40      // control points along the soundwave
 private const val WAVE_SUB = 3        // Catmull-Rom subdivisions between control points (less overdraw)
 private const val WAVE_GAIN = 2.5f
 private const val HIGHLIGHT = 0.05f
+private const val RENDER_MAX = 1280   // cap the GL render resolution; the view upscales (Mali-G31 is weak)
 private val HALF_ARC = Math.toRadians(37.0).toFloat()
 private const val DIR_H = 0.5f
+
+private fun capSize(w: Int, h: Int): Pair<Int, Int> {
+	val longest = max(w, h)
+	if (longest <= RENDER_MAX || longest == 0) return w to h
+	val s = RENDER_MAX.toFloat() / longest
+	return max(1, (w * s).toInt()) to max(1, (h * s).toInt())
+}
 
 private class SceneTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
 	@Volatile private var pendingBitmap: Bitmap? = null
@@ -113,11 +121,15 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 	}
 
 	override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-		thread = RenderThread(surface, width, height).also { it.start() }
+		val (rw, rh) = capSize(width, height)
+		surface.setDefaultBufferSize(rw, rh)
+		thread = RenderThread(surface, rw, rh).also { it.start() }
 	}
 
 	override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-		thread?.resize(width, height)
+		val (rw, rh) = capSize(width, height)
+		surface.setDefaultBufferSize(rw, rh)
+		thread?.resize(rw, rh)
 	}
 
 	override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
@@ -284,7 +296,8 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 				GLES20.glUseProgram(barProg)
 				setPalette(barLoc)
 				GLES20.glUniform2f(barLoc.uRes, w, h)
-				GLES20.glUniform1f(barLoc.uInvH, 1f / h)
+				GLES20.glUniform1f(barLoc.uInvH, 8f / h)   // scale coords into mediump's sweet spot
+				GLES20.glUniform1f(barLoc.uAA, 12f / h)     // ~1.5px anti-alias band
 				drawCapsules(barBuf, barLoc, 10, barCount, bars = true)
 			}
 
@@ -297,7 +310,8 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 				GLES20.glUseProgram(waveProg)
 				setPalette(waveLoc)
 				GLES20.glUniform2f(waveLoc.uRes, w, h)
-				GLES20.glUniform1f(waveLoc.uInvH, 1f / h)
+				GLES20.glUniform1f(waveLoc.uInvH, 8f / h)
+				GLES20.glUniform1f(waveLoc.uAA, 12f / h)
 				GLES20.glUniform1f(waveLoc.uWaveAlpha, waveAlpha)
 				if (waveCountL > 0) {
 					waveBufL.clear(); waveBufL.put(waveArrL, 0, waveCountL * 8); waveBufL.position(0)
@@ -564,7 +578,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 	private class CapLoc {
 		var pos = 0; var a = 0; var b = 0; var radius = 0
 		var lenReach = 0; var frac = 0; var pulse = 0; var t = 0
-		var uRes = 0; var uInvH = 0; var uPal0 = 0; var uPal1 = 0; var uPal2 = 0; var uWaveAlpha = 0
+		var uRes = 0; var uInvH = 0; var uAA = 0; var uPal0 = 0; var uPal1 = 0; var uPal2 = 0; var uWaveAlpha = 0
 		fun bind(prog: Int, bars: Boolean) {
 			pos = GLES20.glGetAttribLocation(prog, "aPosPx")
 			a = GLES20.glGetAttribLocation(prog, "aA")
@@ -572,6 +586,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			radius = GLES20.glGetAttribLocation(prog, "aRadius")
 			uRes = GLES20.glGetUniformLocation(prog, "uRes")
 			uInvH = GLES20.glGetUniformLocation(prog, "uInvH")
+			uAA = GLES20.glGetUniformLocation(prog, "uAA")
 			uPal0 = GLES20.glGetUniformLocation(prog, "uPal0")
 			uPal1 = GLES20.glGetUniformLocation(prog, "uPal1")
 			uPal2 = GLES20.glGetUniformLocation(prog, "uPal2")
@@ -605,10 +620,11 @@ private fun capsule(arr: FloatArray, cur: Int, ax: Float, ay: Float, bx: Float, 
 	val uy = dy / ln
 	val px = -uy
 	val py = ux
-	val a0x = ax - ux * r; val a0y = ay - uy * r
-	val b0x = bx + ux * r; val b0y = by + uy * r
-	val cxs = floatArrayOf(a0x - px * r, b0x - px * r, a0x + px * r, b0x + px * r)
-	val cys = floatArrayOf(a0y - py * r, b0y - py * r, a0y + py * r, b0y + py * r)
+	val ext = r + 2f  // pad past the radius so the anti-alias fade has geometry to cover (no hard cut)
+	val a0x = ax - ux * ext; val a0y = ay - uy * ext
+	val b0x = bx + ux * ext; val b0y = by + uy * ext
+	val cxs = floatArrayOf(a0x - px * ext, b0x - px * ext, a0x + px * ext, b0x + px * ext)
+	val cys = floatArrayOf(a0y - py * ext, b0y - py * ext, a0y + py * ext, b0y + py * ext)
 	var c = cur
 	for (i in intArrayOf(0, 1, 2, 1, 3, 2)) {
 		arr[c++] = cxs[i]; arr[c++] = cys[i]
@@ -684,12 +700,13 @@ precision mediump float;
 varying vec2 vPos; varying vec2 vA; varying vec2 vB; varying float vRad;
 varying float vLenReach; varying float vFrac; varying float vPulse;
 uniform vec3 uPal0, uPal1, uPal2;
+uniform float uAA;
 vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
     vec2 pa = vPos - vA; vec2 ba = vB - vA;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-3), 0.0, 1.0);
     float dseg = length(pa - ba * h);
-    float aa = 1.0 - smoothstep(vRad - 0.0018, vRad + 0.0018, dseg);
+    float aa = 1.0 - smoothstep(vRad - uAA, vRad + uAA, dseg);
     float b = clamp(smoothstep(0.4, 1.0, h * vLenReach) * vPulse, 0.0, 1.0);
     gl_FragColor = vec4(mix(pal(vFrac), vec3(1.0), b), aa);
 }
@@ -710,12 +727,13 @@ precision mediump float;
 varying vec2 vPos; varying vec2 vA; varying vec2 vB; varying float vRad; varying float vT;
 uniform vec3 uPal0, uPal1, uPal2;
 uniform float uWaveAlpha;
+uniform float uAA;
 vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
     vec2 pa = vPos - vA; vec2 ba = vB - vA;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-3), 0.0, 1.0);
     float dseg = length(pa - ba * h);
-    float aa = 1.0 - smoothstep(vRad - 0.0018, vRad + 0.0018, dseg);
+    float aa = 1.0 - smoothstep(vRad - uAA, vRad + uAA, dseg);
     gl_FragColor = vec4(pal(vT), aa * uWaveAlpha);
 }
 """
