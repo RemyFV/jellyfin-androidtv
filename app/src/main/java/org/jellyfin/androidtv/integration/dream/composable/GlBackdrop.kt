@@ -95,7 +95,8 @@ private const val DIR_H = 0.5f
 
 // Adaptive render-resolution ladder (longest side, px). Starts high and settles at the highest step that
 // sustains the target framerate on whatever GPU this runs on; the SurfaceView upscales to the panel.
-private val RES_STEPS = intArrayOf(1280, 1080, 960, 854, 720)
+private val RES_STEPS = intArrayOf(1920, 1280, 1080, 960, 854, 720)
+private const val RES_START = 1  // start at 1280 (known-good); the controller probes up to native (0)
 
 private fun capTo(w: Int, h: Int, cap: Int): Pair<Int, Int> {
 	val longest = max(w, h)
@@ -224,8 +225,8 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var lastNanos = 0L
 
 		// Adaptive resolution state
-		private var stepIndex = 0        // current index into RES_STEPS
-		private var ceilingIndex = 0     // never go above this (set when a step-up proved too slow)
+		private var stepIndex = RES_START  // current index into RES_STEPS
+		private var ceilingIndex = 0       // never go above this (set when a step-up proved too slow)
 		private var pendingProbe = false // just stepped up, evaluating whether it holds
 		private var winFrames = 0
 		private var winTime = 0f
