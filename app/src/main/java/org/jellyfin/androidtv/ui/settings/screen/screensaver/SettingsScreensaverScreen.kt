@@ -87,17 +87,6 @@ fun SettingsScreensaverScreen() {
 		}
 
 		item {
-			var screensaverVisualizerRadial by rememberPreference(userPreferences, UserPreferences.screensaverVisualizerRadial)
-
-			ListButton(
-				headingContent = { Text(stringResource(R.string.pref_screensaver_visualizer_radial)) },
-				trailingContent = { Checkbox(checked = screensaverVisualizerRadial) },
-				captionContent = { Text(stringResource(R.string.pref_screensaver_visualizer_radial_description)) },
-				onClick = { screensaverVisualizerRadial = !screensaverVisualizerRadial }
-			)
-		}
-
-		item {
 			var screensaverVisualizerCenterOut by rememberPreference(userPreferences, UserPreferences.screensaverVisualizerCenterOut)
 
 			ListButton(

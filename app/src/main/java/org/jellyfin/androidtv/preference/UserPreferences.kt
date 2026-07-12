@@ -236,11 +236,6 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 		var screensaverAudioVisualizer = booleanPreference("screensaver_audio_visualizer", false)
 
 		/**
-		 * Draw the audio visualizer as mirrored side arcs instead of straight edge bars.
-		 */
-		var screensaverVisualizerRadial = booleanPreference("screensaver_visualizer_radial", false)
-
-		/**
 		 * Mirror the audio visualizer around the middle (bass in the center).
 		 */
 		var screensaverVisualizerCenterOut = booleanPreference("screensaver_visualizer_centerout", false)

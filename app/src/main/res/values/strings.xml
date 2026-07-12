@@ -501,8 +501,6 @@
     <string name="pref_screensaver_show_lyrics_description">Show synced lyrics over the backdrop during playback</string>
     <string name="pref_screensaver_audio_visualizer">Audio visualizer</string>
     <string name="pref_screensaver_audio_visualizer_description">Show a real-time spectrum on the edges of the music screensaver</string>
-    <string name="pref_screensaver_visualizer_radial">Radial arc visualizer</string>
-    <string name="pref_screensaver_visualizer_radial_description">Draw the spectrum as mirrored side arcs instead of straight edge bars</string>
     <string name="pref_screensaver_visualizer_centerout">Center-out visualizer</string>
     <string name="pref_screensaver_visualizer_centerout_description">Mirror the spectrum around the middle, with bass in the center</string>
     <string name="pref_screensaver_visualizer_covercolor">Color from album cover</string>
