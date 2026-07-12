@@ -93,6 +93,10 @@ private fun capSize(w: Int, h: Int): Pair<Int, Int> {
 	return max(1, (w * s).toInt()) to max(1, (h * s).toInt())
 }
 
+// Hoisted so the per-frame geometry builders don't allocate these every bar/capsule.
+private val SIDES = intArrayOf(1, -1)
+private val TRI_IDX = intArrayOf(0, 1, 2, 1, 3, 2)
+
 private class SceneTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
 	@Volatile private var pendingBitmap: Bitmap? = null
 	@Volatile private var bulge = false
@@ -152,8 +156,12 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 		private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
 		private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
 
-		// backdrop program
+		// backdrop programs (full bulge/shockwave shader, and a plain textured one for when pulse is off)
 		private var bdProg = 0
+		private var bdPlainProg = 0
+		private var bdpPos = 0
+		private var bdpTex = 0
+		private var bdpCrop = 0
 		private var bdPos = 0
 		private var uTex = 0
 		private var uBass = 0
@@ -278,25 +286,31 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			var cropY = 1f
 			if (surfAspect > texAspect) cropY = texAspect / surfAspect else cropX = surfAspect / texAspect
 
-			// --- backdrop ---
-			GLES20.glUseProgram(bdProg)
+			// --- backdrop --- opaque, so blend off (avoids a no-op fullscreen read-modify-write)
+			GLES20.glDisable(GLES20.GL_BLEND)
 			GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
 			GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
-			GLES20.glUniform1i(uTex, 0)
-			GLES20.glUniform1f(uBass, if (bulge) bassState else 0f)
-			GLES20.glUniform1f(uShock, shock)
-			GLES20.glUniform1f(uShockAmp, if (bulge) shockAmp else 0f)
-			GLES20.glUniform1f(uTime, t)
-			GLES20.glUniform1f(uAspect, surfAspect)
-			GLES20.glUniform1f(uHighlight, HIGHLIGHT)
-			GLES20.glUniform2f(uCrop, cropX, cropY)
-			quad.position(0)
-			GLES20.glEnableVertexAttribArray(bdPos)
-			GLES20.glVertexAttribPointer(bdPos, 2, GLES20.GL_FLOAT, false, 0, quad)
-			GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-			GLES20.glDisableVertexAttribArray(bdPos)
+			if (bulge) {
+				GLES20.glUseProgram(bdProg)
+				GLES20.glUniform1i(uTex, 0)
+				GLES20.glUniform1f(uBass, bassState)
+				GLES20.glUniform1f(uShock, shock)
+				GLES20.glUniform1f(uShockAmp, shockAmp)
+				GLES20.glUniform1f(uTime, t)
+				GLES20.glUniform1f(uAspect, surfAspect)
+				GLES20.glUniform1f(uHighlight, HIGHLIGHT)
+				GLES20.glUniform2f(uCrop, cropX, cropY)
+				drawQuad(bdPos)
+			} else {
+				// Pulse off: a trivial textured+crop shader, none of the bulge/shake/edge math.
+				GLES20.glUseProgram(bdPlainProg)
+				GLES20.glUniform1i(bdpTex, 0)
+				GLES20.glUniform2f(bdpCrop, cropX, cropY)
+				drawQuad(bdpPos)
+			}
 
 			if (!visualizer) return
+			GLES20.glEnable(GLES20.GL_BLEND)
 
 			// --- bars ---
 			barCount = buildBars(w, h)
@@ -374,6 +388,14 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
 		}
 
+		private fun drawQuad(pos: Int) {
+			quad.position(0)
+			GLES20.glEnableVertexAttribArray(pos)
+			GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, quad)
+			GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+			GLES20.glDisableVertexAttribArray(pos)
+		}
+
 		private fun drawWaveStrip(staging: FloatBuffer, floatCount: Int, verts: Int) {
 			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, waveVbo)
 			staging.position(0)
@@ -424,7 +446,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 				val dist = hypot(bx, by).coerceAtLeast(1f)
 				val nx = bx / dist
 				val ny = by / dist
-				for (side in intArrayOf(1, -1)) {
+				for (side in SIDES) {
 					var dx = side * nx * (1f - DIR_H) + side * DIR_H
 					var dy = ny * (1f - DIR_H)
 					val dl = hypot(dx, dy).coerceAtLeast(1e-4f)
@@ -436,7 +458,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 					if (ln <= 0f) continue
 					val maxReach = min(maxLen, fl).coerceAtLeast(1f)
 					cur2 = capsule(barArr, cur2, baseX, baseY, baseX + dx * ln, baseY + dy * ln, r,
-						floatArrayOf(ln / maxReach, frac, pulse))
+						ln / maxReach, frac, pulse)
 				}
 			}
 			return cur2 / 10
@@ -468,7 +490,7 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 			val waveAmp = h * 0.056f
 			val r = max(4f, h / (BANDS * 1.6f)) / 2f
 			val dense = (WAVE_CTRL - 1) * WAVE_SUB + 1
-			for (side in intArrayOf(1, -1)) {
+			for (side in SIDES) {
 				// control points along the arc, offset by the wave sample
 				val cpx = FloatArray(WAVE_CTRL)
 				val cpy = FloatArray(WAVE_CTRL)
@@ -547,8 +569,13 @@ private class SceneTextureView(context: Context) : TextureView(context), Texture
 		}
 
 		private fun initGl() {
-			GLES20.glEnable(GLES20.GL_BLEND)
+			// Blend is toggled per pass (off for the opaque backdrop, on for the bars/wave), not global.
 			GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+
+			bdPlainProg = buildProgram(BD_VERT, BD_FRAG_PLAIN)
+			bdpPos = GLES20.glGetAttribLocation(bdPlainProg, "aPos")
+			bdpTex = GLES20.glGetUniformLocation(bdPlainProg, "uTex")
+			bdpCrop = GLES20.glGetUniformLocation(bdPlainProg, "uCrop")
 
 			bdProg = buildProgram(BD_VERT, BD_FRAG)
 			bdPos = GLES20.glGetAttribLocation(bdProg, "aPos")
@@ -656,8 +683,15 @@ private fun catmull(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float
 	return 0.5f * (2f * p1 + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3)
 }
 
-/** Writes a round-capped segment a->b of radius r into [arr] at cursor [cur]; returns the new cursor. */
-private fun capsule(arr: FloatArray, cur: Int, ax: Float, ay: Float, bx: Float, by: Float, r: Float, extra: FloatArray): Int {
+/**
+ * Writes a round-capped segment a->b of radius r into [arr] at cursor [cur]; returns the new cursor.
+ * Extras (e0,e1,e2 = lenReach, frac, pulse) are scalars, and corners are computed inline, so this
+ * allocates nothing on the per-frame hot path (used only by the bars).
+ */
+private fun capsule(
+	arr: FloatArray, cur: Int, ax: Float, ay: Float, bx: Float, by: Float, r: Float,
+	e0: Float, e1: Float, e2: Float,
+): Int {
 	val dx = bx - ax
 	val dy = by - ay
 	val ln = hypot(dx, dy).coerceAtLeast(1e-4f)
@@ -668,15 +702,26 @@ private fun capsule(arr: FloatArray, cur: Int, ax: Float, ay: Float, bx: Float, 
 	val ext = r + 2f  // pad past the radius so the anti-alias fade has geometry to cover (no hard cut)
 	val a0x = ax - ux * ext; val a0y = ay - uy * ext
 	val b0x = bx + ux * ext; val b0y = by + uy * ext
-	val cxs = floatArrayOf(a0x - px * ext, b0x - px * ext, a0x + px * ext, b0x + px * ext)
-	val cys = floatArrayOf(a0y - py * ext, b0y - py * ext, a0y + py * ext, b0y + py * ext)
+	// four corners: 0 = a0-perp, 1 = b0-perp, 2 = a0+perp, 3 = b0+perp
+	val c0x = a0x - px * ext; val c0y = a0y - py * ext
+	val c1x = b0x - px * ext; val c1y = b0y - py * ext
+	val c2x = a0x + px * ext; val c2y = a0y + py * ext
+	val c3x = b0x + px * ext; val c3y = b0y + py * ext
 	var c = cur
-	for (i in intArrayOf(0, 1, 2, 1, 3, 2)) {
-		arr[c++] = cxs[i]; arr[c++] = cys[i]
+	for (i in TRI_IDX) {
+		val cxv: Float
+		val cyv: Float
+		when (i) {
+			0 -> { cxv = c0x; cyv = c0y }
+			1 -> { cxv = c1x; cyv = c1y }
+			2 -> { cxv = c2x; cyv = c2y }
+			else -> { cxv = c3x; cyv = c3y }
+		}
+		arr[c++] = cxv; arr[c++] = cyv
 		arr[c++] = ax; arr[c++] = ay
 		arr[c++] = bx; arr[c++] = by
 		arr[c++] = r
-		for (e in extra) arr[c++] = e
+		arr[c++] = e0; arr[c++] = e1; arr[c++] = e2
 	}
 	return c
 }
@@ -722,6 +767,16 @@ void main() {
     vec3 col = texture2D(uTex, crop(uv)).rgb;
     col += ld34Hl * uHighlight * edge;
     gl_FragColor = vec4(col, 1.0);
+}
+"""
+private const val BD_FRAG_PLAIN = """
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uCrop;
+void main() {
+    vec2 t = (vUv - 0.5) * uCrop + 0.5;
+    gl_FragColor = texture2D(uTex, vec2(t.x, 1.0 - t.y));
 }
 """
 
