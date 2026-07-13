@@ -222,6 +222,20 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var waveAlpha = 0f
 		private var lastWaveNanos = 0L
 
+		// Soundwave interpolation: the waveform is snapshotted at 15 Hz into ctrlTarget; every frame the
+		// displayed control points (ctrlCur) glide from ctrlPrev toward ctrlTarget over one hop, so the
+		// ribbon slides instead of stepping. cpx/cpy/dpx/dpy are hoisted scratch (no per-frame alloc).
+		private val ctrlTarget = FloatArray(WAVE_CTRL)
+		private val ctrlPrev = FloatArray(WAVE_CTRL)
+		private val ctrlCur = FloatArray(WAVE_CTRL)
+		private var waveSnapT = 0f
+		private var waveAlphaPrev = 0f
+		private var waveAlphaTarget = 0f
+		private val cpx = FloatArray(WAVE_CTRL)
+		private val cpy = FloatArray(WAVE_CTRL)
+		private val dpx = FloatArray((WAVE_CTRL - 1) * WAVE_SUB + 1)
+		private val dpy = FloatArray((WAVE_CTRL - 1) * WAVE_SUB + 1)
+
 		private val cur = FloatArray(BANDS)
 		private var bassState = 0f
 		private var beat = 0f
@@ -395,11 +409,13 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 				drawCapsules(barVbo, barBuf, barCount * 10, barLoc, 10, barCount, bars = true)
 			}
 
-			// --- soundwave --- (rebuilt ~15x/s, held between, like Android's per-hop update)
+			// --- soundwave --- sampled at 15 Hz, geometry glided between snapshots every frame so the
+			// curve slides smoothly instead of jumping from one waveform hop to the next.
 			if ((now - lastWaveNanos) / 1e9f >= 1f / 15f) {
 				lastWaveNanos = now
-				buildWave(w, h)
+				snapshotWave()
 			}
+			buildWave(w, h, dt)
 			if (waveAlpha > 0.001f) {
 				GLES20.glUseProgram(waveProg)
 				val p = palette
@@ -535,22 +551,37 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			return cur2 / 10
 		}
 
-		private fun buildWave(w: Float, h: Float) {
+		// Snapshot the current waveform (15 Hz): start a fresh glide from what's displayed now (ctrlCur ->
+		// ctrlPrev) toward the new samples (ctrlTarget). Also snapshots the alpha target.
+		private fun snapshotWave() {
 			val wf = AudioSpectrum.waveform.value
-			val ctrl = FloatArray(WAVE_CTRL)
 			var peak = 0f
+			for (i in 0 until WAVE_CTRL) ctrlPrev[i] = ctrlCur[i]
 			if (wf.size >= WAVE_CTRL) {
 				val block = wf.size / WAVE_CTRL
 				for (i in 0 until WAVE_CTRL) {
 					var s = 0f
 					for (j in 0 until block) s += wf[i * block + j]
-					val vv = (s / block * WAVE_GAIN).coerceIn(-1f, 1f)
-					ctrl[i] = vv
-					if (abs(vv) > peak) peak = abs(vv)
+					ctrlTarget[i] = (s / block * WAVE_GAIN).coerceIn(-1f, 1f)
+					if (abs(ctrlTarget[i]) > peak) peak = abs(ctrlTarget[i])
 				}
+			} else {
+				for (i in 0 until WAVE_CTRL) ctrlTarget[i] = 0f
 			}
 			val fade = min(1f, peak / 0.03f)
-			waveAlpha = if (peak > 0.005f) fade * min(1f, 0.6f + peak * 2.5f) else 0f
+			waveAlphaPrev = waveAlpha
+			waveAlphaTarget = if (peak > 0.005f) fade * min(1f, 0.6f + peak * 2.5f) else 0f
+			waveSnapT = 0f
+		}
+
+		private fun buildWave(w: Float, h: Float, dt: Float) {
+			// glide the control points and alpha over one 15 Hz hop (clamped, so it just holds if a frame
+			// is late), then rebuild the ribbon from the interpolated points every frame
+			waveSnapT += dt
+			val f = min(1f, waveSnapT * 15f)
+			for (i in 0 until WAVE_CTRL) ctrlCur[i] = ctrlPrev[i] + (ctrlTarget[i] - ctrlPrev[i]) * f
+			waveAlpha = waveAlphaPrev + (waveAlphaTarget - waveAlphaPrev) * f
+			if (waveAlpha <= 0.001f) { waveCountL = 0; waveCountR = 0; return }
 
 			val cx = w / 2f
 			val cy = h / 2f
@@ -562,9 +593,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			val r = max(4f, h / (BANDS * 1.6f)) / 2f
 			val dense = (WAVE_CTRL - 1) * WAVE_SUB + 1
 			for (side in SIDES) {
-				// control points along the arc, offset by the wave sample
-				val cpx = FloatArray(WAVE_CTRL)
-				val cpy = FloatArray(WAVE_CTRL)
+				// control points along the arc, offset by the interpolated wave sample
 				for (k in 0 until WAVE_CTRL) {
 					val frac = k.toFloat() / (WAVE_CTRL - 1)
 					val tt = -HALF_ARC + frac * (2f * HALF_ARC)
@@ -575,13 +604,11 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 					var dy = (by / dist) * (1f - DIR_H)
 					val dl = hypot(dx, dy).coerceAtLeast(1e-4f)
 					dx /= dl; dy /= dl
-					val off = ctrl[k] * waveAmp
+					val off = ctrlCur[k] * waveAmp
 					cpx[k] = cx + side * (bx + xGap) + dx * off
 					cpy[k] = cy + by + dy * off
 				}
 				// Catmull-Rom upsample into a smooth dense curve
-				val dpx = FloatArray(dense)
-				val dpy = FloatArray(dense)
 				var di = 0
 				for (i in 0 until WAVE_CTRL - 1) {
 					val p0x = if (i > 0) cpx[i - 1] else cpx[i]
@@ -913,11 +940,10 @@ precision mediump float;
 varying float vEdge; varying float vT;
 uniform vec3 uPal0, uPal1, uPal2;
 uniform float uWaveAlpha;
+vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
     float aa = 1.0 - smoothstep(0.82, 1.0, abs(vEdge));  // ~1px AA on the long edges (native res, crisp)
-    // Primary at the ends, secondary in the middle - the mirror of the bars' gradient, so the wave
-    // contrasts against the bars it overlays instead of matching them.
-    vec3 col = mix(uPal0, uPal1, abs(vT - 0.5) * 2.0);
-    gl_FragColor = vec4(col, aa * uWaveAlpha);
+    // Reverse the bars' gradient: 3->2->1 along the wave vs the bars' 1->2->3, so the two contrast.
+    gl_FragColor = vec4(pal(1.0 - vT), aa * uWaveAlpha);
 }
 """
