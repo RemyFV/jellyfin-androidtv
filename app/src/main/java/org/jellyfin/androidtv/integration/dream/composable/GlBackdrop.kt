@@ -391,7 +391,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 				setPalette(barLoc)
 				GLES20.glUniform2f(barLoc.uRes, w, h)
 				GLES20.glUniform1f(barLoc.uInvH, 8f / h)   // scale coords into mediump's sweet spot
-				GLES20.glUniform1f(barLoc.uAA, 22f / h)     // wider AA band (~2.7px) to soften the upscale
+				GLES20.glUniform1f(barLoc.uAA, 5f / h)      // ~0.6px AA each side: crisp now we're at native res
 				drawCapsules(barVbo, barBuf, barCount * 10, barLoc, 10, barCount, bars = true)
 			}
 
@@ -913,9 +913,11 @@ precision mediump float;
 varying float vEdge; varying float vT;
 uniform vec3 uPal0, uPal1, uPal2;
 uniform float uWaveAlpha;
-vec3 pal(float f) { return f < 0.5 ? mix(uPal0, uPal1, f * 2.0) : mix(uPal1, uPal2, (f - 0.5) * 2.0); }
 void main() {
-    float aa = 1.0 - smoothstep(0.55, 1.0, abs(vEdge));  // soft long edges (wide, to survive the upscale)
-    gl_FragColor = vec4(pal(vT), aa * uWaveAlpha);
+    float aa = 1.0 - smoothstep(0.82, 1.0, abs(vEdge));  // ~1px AA on the long edges (native res, crisp)
+    // Primary at the ends, secondary in the middle - the mirror of the bars' gradient, so the wave
+    // contrasts against the bars it overlays instead of matching them.
+    vec3 col = mix(uPal0, uPal1, abs(vT - 0.5) * 2.0);
+    gl_FragColor = vec4(col, aa * uWaveAlpha);
 }
 """
