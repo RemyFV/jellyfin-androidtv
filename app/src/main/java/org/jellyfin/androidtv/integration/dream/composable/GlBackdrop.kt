@@ -93,10 +93,11 @@ private const val HIGHLIGHT = 0.05f
 private val HALF_ARC = Math.toRadians(37.0).toFloat()
 private const val DIR_H = 0.5f
 
-// Adaptive render-resolution ladder (longest side, px). Starts high and settles at the highest step that
-// sustains the target framerate on whatever GPU this runs on; the SurfaceView upscales to the panel.
-private val RES_STEPS = intArrayOf(1280, 1080, 960, 854, 720)
-private const val RES_START = 0  // top step; only ever scales DOWN (upsizing the surface wedges swap on Amlogic)
+// The bars/soundwave render at the panel's native resolution (crisp, no upscale aliasing). Only the
+// expensive bulge/shockwave backdrop shader renders into a small offscreen FBO capped at this longest
+// side, then gets composited (bilinear-upscaled) to the screen - that's the whole GPU cost, so shrinking
+// it is what buys the framerate. 1280 keeps the album cover from looking pixelated.
+private const val BACKDROP_CAP = 1280
 
 private fun capTo(w: Int, h: Int, cap: Int): Pair<Int, Int> {
 	val longest = max(w, h)
@@ -139,7 +140,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 	override fun surfaceCreated(holder: SurfaceHolder) = Unit  // wait for surfaceChanged (has the size)
 
 	override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-		// Buffer size (incl. adaptive setFixedSize changes) arrives here; the render thread owns the cap.
+		// Native buffer size; we never setFixedSize now - the backdrop FBO handles downscaling instead.
 		if (thread == null) thread = RenderThread(holder.surface, width, height).also { it.start() }
 		else thread?.resize(width, height)
 	}
@@ -177,6 +178,16 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var uHighlight = 0
 		private var uCrop = 0
 		private lateinit var quad: FloatBuffer
+
+		// Offscreen backdrop target: the bulge/shockwave shader renders here at reduced res, then a
+		// trivial textured-quad program composites it (bilinear-upscaled) to the screen.
+		private var fbo = 0
+		private var fboTex = 0
+		private var fboW = 0
+		private var fboH = 0
+		private var compProg = 0
+		private var compPos = 0
+		private var compTex = 0
 
 		// capsule programs (bars, wave)
 		private var barProg = 0
@@ -224,44 +235,47 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var startNanos = 0L
 		private var lastNanos = 0L
 
-		// Adaptive resolution state (ratchet-down-only: upsizing the surface wedges swap on Amlogic)
-		private var stepIndex = RES_START
+		// FPS measurement only - no adaptive resolution now that the FBO gives the headroom.
 		private var winFrames = 0
 		private var winTime = 0f
-		private var slowWins = 0
 
 		fun resize(w: Int, h: Int) { viewW = w; viewH = h; GlStats.renderW = w; GlStats.renderH = h }
 
-		private fun applyRes() {
-			val nw = this@SceneSurfaceView.width
-			val nh = this@SceneSurfaceView.height
-			if (nw <= 0 || nh <= 0) return
-			val (rw, rh) = capTo(nw, nh, RES_STEPS[stepIndex])
-			this@SceneSurfaceView.post { runCatching { holder.setFixedSize(rw, rh) } }
-		}
-
-		// Achieved-FPS controller (eglSwapBuffers blocks on vsync, so swaps/sec reflects GPU load).
-		private fun adapt(dt: Float) {
+		// eglSwapBuffers blocks on vsync, so swaps/sec is the real achieved rate.
+		private fun measureFps(dt: Float) {
 			winFrames++
 			winTime += dt
 			if (winTime < 1f) return
-			val fps = winFrames / winTime
+			GlStats.fps = (winFrames / winTime + 0.5f).toInt()
 			winFrames = 0
 			winTime = 0f
-			GlStats.fps = (fps + 0.5f).toInt()
-			if (fps < 40f) {
-				slowWins++
-				if (slowWins >= 2 && stepIndex < RES_STEPS.size - 1) { stepIndex++; applyRes(); slowWins = 0 }
-			} else {
-				slowWins = 0
+		}
+
+		// (Re)create the offscreen backdrop target, sized to the native view capped at BACKDROP_CAP.
+		private fun ensureFbo(vw: Int, vh: Int) {
+			val (tw, th) = capTo(vw, vh, BACKDROP_CAP)
+			if (fbo != 0 && tw == fboW && th == fboH) return
+			fboW = tw; fboH = th
+			if (fbo == 0) {
+				val fb = IntArray(1); GLES20.glGenFramebuffers(1, fb, 0); fbo = fb[0]
+				val tx = IntArray(1); GLES20.glGenTextures(1, tx, 0); fboTex = tx[0]
 			}
+			GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex)
+			GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, fboW, fboH, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+			GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
+			GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, fboTex, 0)
+			GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
 		}
 
 		override fun run() {
 			try {
 				initEgl()
 				initGl()
-				applyRes()  // request the initial (top-of-ladder) capped resolution
+				GlStats.renderW = viewW; GlStats.renderH = viewH  // native; the FPS readout shows this
 				startNanos = System.nanoTime()
 				lastNanos = startNanos
 				while (running) {
@@ -281,7 +295,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			val t = (now - startNanos) / 1e9f
 			val dt = ((now - lastNanos) / 1e9f).coerceIn(0f, 0.1f)
 			lastNanos = now
-			adapt(dt)
+			measureFps(dt)
 
 			// Smooth the spectrum (fast attack, slow release), as the Compose visualizer did.
 			val target = AudioSpectrum.bands.value
@@ -313,10 +327,13 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 
 			val w = viewW.toFloat()
 			val h = viewH.toFloat()
-			GLES20.glViewport(0, 0, viewW, viewH)
-			GLES20.glClearColor(0f, 0f, 0f, 1f)
-			GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-			if (!hasTexture || viewW <= 0 || viewH <= 0) return
+			if (viewW <= 0 || viewH <= 0) return
+			if (!hasTexture) {
+				GLES20.glViewport(0, 0, viewW, viewH)
+				GLES20.glClearColor(0f, 0f, 0f, 1f)
+				GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+				return
+			}
 
 			val surfAspect = w / h
 			val texAspect = if (texH > 0) texW.toFloat() / texH else 1f
@@ -325,10 +342,15 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			if (surfAspect > texAspect) cropY = texAspect / surfAspect else cropX = surfAspect / texAspect
 
 			// --- backdrop --- opaque, so blend off (avoids a no-op fullscreen read-modify-write)
-			GLES20.glDisable(GLES20.GL_BLEND)
 			GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-			GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
 			if (bulge) {
+				// The bulge/shockwave shader (fullscreen dependent-fetch = the whole GPU cost) renders into
+				// a small FBO, then we composite it upscaled. The bars/wave still draw at native res below.
+				ensureFbo(viewW, viewH)
+				GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
+				GLES20.glViewport(0, 0, fboW, fboH)
+				GLES20.glDisable(GLES20.GL_BLEND)
+				GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
 				GLES20.glUseProgram(bdProg)
 				GLES20.glUniform1i(uTex, 0)
 				GLES20.glUniform1f(uBass, bassState)
@@ -339,8 +361,19 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 				GLES20.glUniform1f(uHighlight, HIGHLIGHT)
 				GLES20.glUniform2f(uCrop, cropX, cropY)
 				drawQuad(bdPos)
+				// composite the FBO to the screen at native res (bilinear upscale, fullscreen so no clear)
+				GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+				GLES20.glViewport(0, 0, viewW, viewH)
+				GLES20.glDisable(GLES20.GL_BLEND)
+				GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex)
+				GLES20.glUseProgram(compProg)
+				GLES20.glUniform1i(compTex, 0)
+				drawQuad(compPos)
 			} else {
-				// Pulse off: a trivial textured+crop shader, none of the bulge/shake/edge math.
+				// Pulse off: a trivial textured+crop shader straight to the screen at native res.
+				GLES20.glViewport(0, 0, viewW, viewH)
+				GLES20.glDisable(GLES20.GL_BLEND)
+				GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
 				GLES20.glUseProgram(bdPlainProg)
 				GLES20.glUniform1i(bdpTex, 0)
 				GLES20.glUniform2f(bdpCrop, cropX, cropY)
@@ -616,6 +649,10 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			bdpTex = GLES20.glGetUniformLocation(bdPlainProg, "uTex")
 			bdpCrop = GLES20.glGetUniformLocation(bdPlainProg, "uCrop")
 
+			compProg = buildProgram(BD_VERT, COMP_FRAG)
+			compPos = GLES20.glGetAttribLocation(compProg, "aPos")
+			compTex = GLES20.glGetUniformLocation(compProg, "uTex")
+
 			bdProg = buildProgram(BD_VERT, BD_FRAG)
 			bdPos = GLES20.glGetAttribLocation(bdProg, "aPos")
 			uTex = GLES20.glGetUniformLocation(bdProg, "uTex")
@@ -817,6 +854,14 @@ void main() {
     vec2 t = (vUv - 0.5) * uCrop + 0.5;
     gl_FragColor = texture2D(uTex, vec2(t.x, 1.0 - t.y));
 }
+"""
+// Composites the offscreen backdrop FBO to the screen (straight copy; the LINEAR-filtered fboTex does
+// the upscale). vUv is already 0..1 bottom-left, matching the FBO's own render orientation - no flip.
+private const val COMP_FRAG = """
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+void main() { gl_FragColor = vec4(texture2D(uTex, vUv).rgb, 1.0); }
 """
 
 // SDF works in height-normalized coords (uInvH) so magnitudes stay ~0..2: mediump-safe (no overflow)
