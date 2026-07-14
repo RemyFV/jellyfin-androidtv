@@ -94,10 +94,10 @@ private val HALF_ARC = Math.toRadians(37.0).toFloat()
 private const val DIR_H = 0.5f
 
 // The bars/soundwave render at the panel's native resolution (crisp, no upscale aliasing). Only the
-// expensive bulge/shockwave backdrop shader renders into a small offscreen FBO capped at this longest
-// side, then gets composited (bilinear-upscaled) to the screen - that's the whole GPU cost, so shrinking
-// it is what buys the framerate. 1280 keeps the album cover from looking pixelated.
-private const val BACKDROP_CAP = 1280
+// expensive bulge/shockwave backdrop shader renders into an offscreen FBO capped at this longest side,
+// then gets composited (bilinear-upscaled) to the screen. Shrinking it is what buys framerate on a weak
+// GPU; 1920 = no downscale at all (backdrop at full 1080p) - lower it (e.g. 1280) if that's too heavy.
+private const val BACKDROP_CAP = 1920
 
 private fun capTo(w: Int, h: Int, cap: Int): Pair<Int, Int> {
 	val longest = max(w, h)
