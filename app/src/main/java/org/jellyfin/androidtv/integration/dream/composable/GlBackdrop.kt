@@ -96,8 +96,13 @@ private const val DIR_H = 0.5f
 // The bars/soundwave render at the panel's native resolution (crisp, no upscale aliasing). Only the
 // expensive bulge/shockwave backdrop shader renders into an offscreen FBO capped at this longest side,
 // then gets composited (bilinear-upscaled) to the screen. Shrinking it is what buys framerate on a weak
-// GPU; 1920 = no downscale at all (backdrop at full 1080p) - lower it (e.g. 1280) if that's too heavy.
-private const val BACKDROP_CAP = 1920
+// GPU, and the downscale is invisible on a blurred/displaced backdrop. Kept small deliberately: sustained
+// full-rate 1080p displacement can hang this box's Mali GPU (whole-box freeze), so we cut the load hard.
+private const val BACKDROP_CAP = 960
+
+// The displacement is the dominant GPU cost, so re-render it into the FBO at most this often and just
+// composite the cached FBO on the frames in between - halves the heavy-shader work with no visible change.
+private const val BACKDROP_FPS = 30f
 
 private fun capTo(w: Int, h: Int, cap: Int): Pair<Int, Int> {
 	val longest = max(w, h)
@@ -221,6 +226,7 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 		private var waveCountR = 0
 		private var waveAlpha = 0f
 		private var lastWaveNanos = 0L
+		private var lastBdNanos = 0L   // last time the backdrop FBO was re-rendered (throttled to BACKDROP_FPS)
 
 		// Soundwave interpolation: the waveform is snapshotted at 15 Hz into ctrlTarget; every frame the
 		// displayed control points (ctrlCur) glide from ctrlPrev toward ctrlTarget over one hop, so the
@@ -295,10 +301,12 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 				while (running) {
 					pendingBitmap?.let { bmp -> pendingBitmap = null; uploadTexture(bmp) }
 					step()
-					EGL14.eglSwapBuffers(eglDisplay, eglSurface)  // blocks on vsync
+					// blocks on vsync; if it returns false the surface is gone - stop instead of spinning
+					if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) break
 				}
-			} catch (_: Throwable) {
-				// Never crash the screensaver on a GL error; just stop rendering.
+			} catch (t: Throwable) {
+				// Never crash the screensaver on a GL error; log it (silent-catch hid past failures) and stop.
+				android.util.Log.w("GlBackdrop", "GL render thread stopped on error", t)
 			} finally {
 				releaseEgl()
 			}
@@ -359,24 +367,29 @@ private class SceneSurfaceView(context: Context) : SurfaceView(context), Surface
 			GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
 			if (bulge) {
 				// The bulge/shockwave shader (fullscreen dependent-fetch = the whole GPU cost) renders into
-				// a small FBO, then we composite it upscaled. The bars/wave still draw at native res below.
+				// a small FBO; the bars/wave draw at native res below. Re-render the FBO at most BACKDROP_FPS
+				// and composite the cached copy on the frames between - sustained full-rate 1080p-class
+				// displacement pegs this box's GPU and can hang the whole box, so we cap the heavy work.
 				ensureFbo(viewW, viewH)
-				GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
-				GLES20.glViewport(0, 0, fboW, fboH)
-				GLES20.glDisable(GLES20.GL_BLEND)
-				GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
-				GLES20.glUseProgram(bdProg)
-				GLES20.glUniform1i(uTex, 0)
-				GLES20.glUniform1f(uBass, bassState)
-				GLES20.glUniform1f(uShock, shock)
-				GLES20.glUniform1f(uShockAmp, shockAmp)
-				GLES20.glUniform1f(uTime, t)
-				GLES20.glUniform1f(uAspect, surfAspect)
-				GLES20.glUniform1f(uHighlight, HIGHLIGHT)
-				GLES20.glUniform2f(uCrop, cropX, cropY)
-				drawQuad(bdPos)
-				// composite the FBO to the screen at native res (bilinear upscale, fullscreen so no clear)
-				GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+				if ((now - lastBdNanos) / 1e9f >= 1f / BACKDROP_FPS) {
+					lastBdNanos = now
+					GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
+					GLES20.glViewport(0, 0, fboW, fboH)
+					GLES20.glDisable(GLES20.GL_BLEND)
+					GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+					GLES20.glUseProgram(bdProg)
+					GLES20.glUniform1i(uTex, 0)
+					GLES20.glUniform1f(uBass, bassState)
+					GLES20.glUniform1f(uShock, shock)
+					GLES20.glUniform1f(uShockAmp, shockAmp)
+					GLES20.glUniform1f(uTime, t)
+					GLES20.glUniform1f(uAspect, surfAspect)
+					GLES20.glUniform1f(uHighlight, HIGHLIGHT)
+					GLES20.glUniform2f(uCrop, cropX, cropY)
+					drawQuad(bdPos)
+					GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+				}
+				// composite the (possibly cached) FBO to the screen (bilinear upscale, fullscreen so no clear)
 				GLES20.glViewport(0, 0, viewW, viewH)
 				GLES20.glDisable(GLES20.GL_BLEND)
 				GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex)
