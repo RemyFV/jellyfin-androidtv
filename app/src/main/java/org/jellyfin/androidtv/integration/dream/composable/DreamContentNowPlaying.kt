@@ -1,6 +1,7 @@
 package org.jellyfin.androidtv.integration.dream.composable
 
 import android.widget.ImageView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +21,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -104,14 +110,16 @@ fun DreamContentNowPlaying(
 	val visualizerPalette = rememberVisualizerPalette(primaryImage?.getUrl(api), showVisualizer, visualizerCoverColor)
 
 	// Three gradient stops (left, main, right) as flat RGB floats for the GL bars/soundwave.
-	val paletteFloats = remember(visualizerPalette) {
+	val paletteColors = remember(visualizerPalette) {
 		val stops = visualizerPalette.stops
 		fun rgb(i: Int) = stops[i.coerceIn(0, stops.size - 1)].second
-		val a = rgb(0)
-		val b = rgb(stops.size / 2)
-		val c = rgb(stops.size - 1)
-		floatArrayOf(a.red, a.green, a.blue, b.red, b.green, b.blue, c.red, c.green, c.blue)
+		listOf(rgb(0), rgb(stops.size / 2), rgb(stops.size - 1))
 	}
+	val paletteFloats = remember(paletteColors) {
+		paletteColors.flatMap { listOf(it.red, it.green, it.blue) }.toFloatArray()
+	}
+	// the wave runs the stops in reverse (see GlBackdrop), the seek bar follows it
+	val seekbarBrush = remember(paletteColors) { Brush.horizontalGradient(paletteColors.reversed()) }
 
 	val artistText = content.item.run {
 		val artistNames = artists.orEmpty()
@@ -236,18 +244,7 @@ fun DreamContentNowPlaying(
 
 			Spacer(modifier = Modifier.height(10.dp))
 
-			PlayerSeekbar(
-				playbackManager = playbackManager,
-				colors = SeekbarDefaults.colors(
-					backgroundColor = Color.White.copy(alpha = 0.2f),
-					progressColor = Color.White,
-					bufferColor = Color.Transparent,
-				),
-				modifier = Modifier
-					.fillMaxWidth()
-					.height(4.dp)
-					.shadow(2.dp, RoundedCornerShape(2.dp)),
-			)
+			NowPlayingSeekbar(playbackManager, seekbarBrush)
 		}
 	} else {
 		// Default bottom-left metadata row.
@@ -297,19 +294,34 @@ fun DreamContentNowPlaying(
 
 				Spacer(modifier = Modifier.height(10.dp))
 
-				PlayerSeekbar(
-					playbackManager = playbackManager,
-					colors = SeekbarDefaults.colors(
-						backgroundColor = Color.White.copy(alpha = 0.2f),
-						progressColor = Color.White,
-						bufferColor = Color.Transparent,
-					),
-					modifier = Modifier
-						.fillMaxWidth()
-						.height(4.dp)
-						.shadow(2.dp, RoundedCornerShape(2.dp))
-				)
+				NowPlayingSeekbar(playbackManager, seekbarBrush)
 			}
 		}
 	}
+}
+
+@Composable
+private fun NowPlayingSeekbar(playbackManager: PlaybackManager, brush: Brush) {
+	val shape = RoundedCornerShape(2.dp)
+
+	PlayerSeekbar(
+		playbackManager = playbackManager,
+		colors = SeekbarDefaults.colors(
+			backgroundColor = Color.Transparent,
+			progressColor = Color.White,
+			bufferColor = Color.Transparent,
+		),
+		modifier = Modifier
+			.fillMaxWidth()
+			.height(4.dp)
+			.shadow(2.dp, shape)
+			.background(Color.White.copy(alpha = 0.2f), shape)
+			// Seekbar only takes flat colors: draw the fill white in its own layer and
+			// paint the gradient over it with SrcIn, the track behind is left alone
+			.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+			.drawWithContent {
+				drawContent()
+				drawRect(brush, blendMode = BlendMode.SrcIn)
+			},
+	)
 }
