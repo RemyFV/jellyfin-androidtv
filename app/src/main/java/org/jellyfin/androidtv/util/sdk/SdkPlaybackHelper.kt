@@ -39,7 +39,7 @@ class SdkPlaybackHelper(
 	private val playbackControllerContainer: PlaybackControllerContainer,
 ) : PlaybackHelper {
 	companion object {
-		const val ITEM_QUERY_LIMIT = 150
+		const val ITEM_QUERY_LIMIT = 2000
 	}
 
 	override fun getItemsToPlay(

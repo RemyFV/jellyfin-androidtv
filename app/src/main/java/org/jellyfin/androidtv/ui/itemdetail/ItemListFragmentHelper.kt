@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.data.repository.ItemMutationRepository
 import org.jellyfin.androidtv.data.repository.ItemRepository
+import org.jellyfin.androidtv.util.sdk.SdkPlaybackHelper
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.itemsApi
 import org.jellyfin.sdk.api.client.extensions.playlistsApi
@@ -42,7 +43,7 @@ fun MusicFavoritesListFragment.getFavoritePlaylist(
 				recursive = true,
 				filters = setOf(org.jellyfin.sdk.model.api.ItemFilter.IS_FAVORITE_OR_LIKES),
 				sortBy = setOf(ItemSortBy.RANDOM),
-				limit = 100,
+				limit = SdkPlaybackHelper.ITEM_QUERY_LIMIT,
 				fields = ItemRepository.itemFields,
 			).content
 		}
@@ -62,7 +63,7 @@ fun ItemListFragment.getPlaylist(
 			when {
 				item.type == BaseItemKind.PLAYLIST -> api.playlistsApi.getPlaylistItems(
 					playlistId = item.id,
-					limit = 150,
+					limit = SdkPlaybackHelper.ITEM_QUERY_LIMIT,
 					fields = ItemRepository.itemFields,
 				).content
 
@@ -71,7 +72,7 @@ fun ItemListFragment.getPlaylist(
 					includeItemTypes = setOf(BaseItemKind.AUDIO),
 					recursive = true,
 					sortBy = setOf(ItemSortBy.SORT_NAME),
-					limit = 200,
+					limit = SdkPlaybackHelper.ITEM_QUERY_LIMIT,
 					fields = ItemRepository.itemFields,
 				).content
 			}
