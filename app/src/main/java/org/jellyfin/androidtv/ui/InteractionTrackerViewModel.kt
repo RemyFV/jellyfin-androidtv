@@ -4,8 +4,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +23,10 @@ class InteractionTrackerViewModel(
 ) : ViewModel() {
 	// Screensaver
 
+	// this is a koin single that MainActivity also puts in its ViewModelStore: when the activity
+	// is destroyed the store clears it and viewModelScope is cancelled for good, while the next
+	// MainActivity gets the same instance back - the timer then never fires until the process dies
+	private val scope = MainScope()
 	private var timer: Job? = null
 	private var locks = 0
 
@@ -105,7 +109,7 @@ class InteractionTrackerViewModel(
 
 		// Create new timer to show screensaver when enabled
 		if (inAppEnabled && !activityPaused && locks == 0) {
-			timer = viewModelScope.launch {
+			timer = scope.launch {
 				delay(timeout)
 				_screensaverVisible.value = true
 			}
