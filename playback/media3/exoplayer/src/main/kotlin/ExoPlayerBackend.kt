@@ -13,6 +13,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
+import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -50,7 +51,7 @@ import timber.log.Timber
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalApi::class)
 class ExoPlayerBackend(
 	private val context: Context,
 	private val exoPlayerOptions: ExoPlayerOptions,
@@ -136,6 +137,10 @@ class ExoPlayerBackend(
 			})
 			.setMediaSourceFactory(mediaSourceFactory)
 			.setPauseAtEndOfMediaItems(true)
+			// on by default since media3 1.11: the work loop then only wakes when the 500ms
+			// AudioTrack buffer needs refilling, so the AudioSpectrum tap gets its PCM in
+			// half-second bursts and the visualizer updates at ~2fps
+			.experimentalSetDynamicSchedulingEnabled(false)
 			.build()
 			.also { player ->
 				player.addListener(PlayerListener())
